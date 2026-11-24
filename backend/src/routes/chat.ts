@@ -311,8 +311,8 @@ chatRouter.post(
             storageKey: stored.storageKey,
             mimeType: stored.mimeType,
             byteSize: stored.byteSize,
-            width: 'width' in stored ? stored.width : null,
-            height: 'height' in stored ? stored.height : null,
+            width: 'width' in stored ? Number(stored.width) : null,
+            height: 'height' in stored ? Number(stored.height) : null,
           },
         });
 
