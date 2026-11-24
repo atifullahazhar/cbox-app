@@ -7,7 +7,6 @@ import { hashToken } from '../utils/security.js';
 import { getFriendIds } from '../services/permissions.js';
 
 let ioInstance: Server | null = null;
-// Maps userId -> Set of active socket IDs for accurate multi-device presence
 const activeSocketsByUser = new Map<string, Set<string>>();
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -91,6 +90,26 @@ export function attachSocketServer(httpServer: HttpServer): Server {
     if (wasOffline) {
       await broadcastPresenceToFriends(userId, true);
     }
+
+    // Participant-authorized real-time typing indicator
+    socket.on('chat:typing', async (payload: { conversationId?: string; isTyping?: boolean }) => {
+      try {
+        if (!payload?.conversationId || typeof payload.isTyping !== 'boolean') return;
+        const conv = await prisma.conversation.findUnique({
+          where: { id: payload.conversationId },
+          select: { userAId: true, userBId: true },
+        });
+        if (!conv || (conv.userAId !== userId && conv.userBId !== userId)) return;
+        const recipientId = conv.userAId === userId ? conv.userBId : conv.userAId;
+        emitToUser(recipientId, 'chat:typing', {
+          conversationId: payload.conversationId,
+          userId,
+          isTyping: payload.isTyping,
+        });
+      } catch {
+        // Ignore malformed typing events
+      }
+    });
 
     socket.on('disconnect', async () => {
       const userSockets = activeSocketsByUser.get(userId);

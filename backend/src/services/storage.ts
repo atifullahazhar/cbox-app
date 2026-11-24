@@ -6,12 +6,21 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import { MediaPurpose } from '@prisma/client';
 import { env } from '../config/env.js';
 
-const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_AUDIO_MIMES = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/wav',
+]);
 
-const PURPOSE_DIMENSIONS: Record<MediaPurpose, { maxWidth: number; maxHeight: number }> = {
+const IMAGE_DIMENSIONS: Partial<Record<MediaPurpose, { maxWidth: number; maxHeight: number }>> = {
   AVATAR: { maxWidth: 512, maxHeight: 512 },
   BANNER: { maxWidth: 1600, maxHeight: 600 },
   POST_IMAGE: { maxWidth: 1920, maxHeight: 1920 },
+  CHAT_IMAGE: { maxWidth: 1600, maxHeight: 1600 },
+  STORY_IMAGE: { maxWidth: 1080, maxHeight: 1920 },
 };
 
 let s3Client: S3Client | null = null;
@@ -33,6 +42,24 @@ function getS3Client(): S3Client {
   return s3Client;
 }
 
+async function writeBuffer(storageKey: string, data: Buffer, contentType: string): Promise<void> {
+  if (env.storageDriver === 's3') {
+    await getS3Client().send(
+      new PutObjectCommand({
+        Bucket: env.s3.bucket,
+        Key: storageKey,
+        Body: data,
+        ContentType: contentType,
+        CacheControl: 'private, max-age=3600',
+      })
+    );
+  } else {
+    const fullPath = path.join(env.localStorageDir, storageKey);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, data);
+  }
+}
+
 export async function processAndStoreImage(params: {
   buffer: Buffer;
   declaredMimeType: string;
@@ -45,15 +72,14 @@ export async function processAndStoreImage(params: {
   width: number;
   height: number;
 }> {
-  if (!ALLOWED_MIME_TYPES.has(params.declaredMimeType)) {
+  if (!ALLOWED_IMAGE_MIMES.has(params.declaredMimeType)) {
     throw new Error('Unsupported image type. Allowed formats: JPEG, PNG, WebP.');
   }
   if (params.buffer.length === 0 || params.buffer.length > env.maxUploadBytes) {
     throw new Error(`Image exceeds maximum allowed size (${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).`);
   }
 
-  // Decode & re-encode with Sharp to strip EXIF metadata, neutralize polyglot payloads, and verify actual image bytes
-  const dims = PURPOSE_DIMENSIONS[params.purpose];
+  const dims = IMAGE_DIMENSIONS[params.purpose] || { maxWidth: 1600, maxHeight: 1600 };
   const pipeline = sharp(params.buffer, { failOn: 'error', limitInputPixels: 40_000_000 });
   const metadata = await pipeline.metadata();
 
@@ -62,7 +88,7 @@ export async function processAndStoreImage(params: {
   }
 
   const reencoded = await pipeline
-    .rotate() // Apply EXIF orientation before stripping metadata
+    .rotate()
     .resize({
       width: dims.maxWidth,
       height: dims.maxHeight,
@@ -73,22 +99,7 @@ export async function processAndStoreImage(params: {
     .toBuffer({ resolveWithObject: true });
 
   const storageKey = `${params.purpose.toLowerCase()}/${params.ownerId}/${crypto.randomUUID()}.webp`;
-
-  if (env.storageDriver === 's3') {
-    await getS3Client().send(
-      new PutObjectCommand({
-        Bucket: env.s3.bucket,
-        Key: storageKey,
-        Body: reencoded.data,
-        ContentType: 'image/webp',
-        CacheControl: 'private, max-age=3600',
-      })
-    );
-  } else {
-    const fullPath = path.join(env.localStorageDir, storageKey);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, reencoded.data);
-  }
+  await writeBuffer(storageKey, reencoded.data, 'image/webp');
 
   return {
     storageKey,
@@ -96,6 +107,41 @@ export async function processAndStoreImage(params: {
     byteSize: reencoded.info.size,
     width: reencoded.info.width,
     height: reencoded.info.height,
+  };
+}
+
+export async function processAndStoreAudio(params: {
+  buffer: Buffer;
+  declaredMimeType: string;
+  ownerId: string;
+}): Promise<{
+  storageKey: string;
+  mimeType: string;
+  byteSize: number;
+}> {
+  const baseMime = params.declaredMimeType.split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_AUDIO_MIMES.has(baseMime)) {
+    throw new Error('Unsupported audio format for voice note.');
+  }
+  if (params.buffer.length === 0 || params.buffer.length > env.maxUploadBytes) {
+    throw new Error(`Voice note exceeds maximum allowed size (${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).`);
+  }
+
+  const extMap: Record<string, string> = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+  };
+  const ext = extMap[baseMime] || 'webm';
+  const storageKey = `chat_audio/${params.ownerId}/${crypto.randomUUID()}.${ext}`;
+  await writeBuffer(storageKey, params.buffer, baseMime);
+
+  return {
+    storageKey,
+    mimeType: baseMime,
+    byteSize: params.buffer.length,
   };
 }
 
@@ -115,7 +161,6 @@ export async function readStoredMedia(storageKey: string): Promise<Buffer> {
     return Buffer.concat(chunks);
   }
 
-  // Prevent path traversal on local disk
   const resolvedBase = path.resolve(env.localStorageDir);
   const resolvedTarget = path.resolve(resolvedBase, storageKey);
   if (!resolvedTarget.startsWith(resolvedBase + path.sep)) {

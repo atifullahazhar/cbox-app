@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Images } from 'lucide-react';
-import type { PostAudience, PostItem } from '../types';
+import type { PostAudience, PostItem, StoryItem } from '../types';
 import { apiFetch } from '../lib/api';
 import { PostCard } from '../components/posts/PostCard';
 import { PostComposer } from '../components/posts/PostComposer';
+import { StoryBar } from '../components/stories/StoryBar';
+import { UserProfileModal } from '../components/profile/UserProfileModal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
 
@@ -14,14 +16,20 @@ interface PostsScreenProps {
 
 export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNotify }) => {
   const [posts, setPosts] = useState<PostItem[]>([]);
+  const [stories, setStories] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
 
   async function loadFeed() {
     setLoading(true);
     try {
-      const res = await apiFetch<{ posts: PostItem[] }>('/api/posts/feed');
-      setPosts(res.posts);
+      const [pRes, sRes] = await Promise.all([
+        apiFetch<{ posts: PostItem[] }>('/api/posts/feed'),
+        apiFetch<{ stories: StoryItem[] }>('/api/stories'),
+      ]);
+      setPosts(pRes.posts);
+      setStories(sRes.stories);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Failed to load feed.', 'error');
     } finally {
@@ -61,9 +69,9 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-cbox-text">Posts</h1>
+          <h1 className="text-xl font-bold text-cbox-text">Posts & Stories</h1>
           <p className="text-xs text-cbox-muted">
-            Public posts and friends-only photos you are authorized to view.
+            24-hour stories, public posts, and friends-only photos.
           </p>
         </div>
 
@@ -77,6 +85,17 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
           <span>New Post</span>
         </button>
       </div>
+
+      {/* 24-Hour Stories Strip */}
+      <StoryBar
+        stories={stories}
+        onStoryCreated={(s) => setStories((prev) => [s, ...prev])}
+        onStoryDeleted={(id) => setStories((prev) => prev.filter((s) => s.id !== id))}
+        onStoryViewed={(id) =>
+          setStories((prev) => prev.map((s) => (s.id === id ? { ...s, viewedByMe: true } : s)))
+        }
+        onNotify={onNotify}
+      />
 
       {loading ? (
         <LoadingSkeleton variant="card" rows={2} />
@@ -103,6 +122,7 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
               post={post}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onOpenProfile={(uname) => setProfileUsername(uname)}
               onReportSoon={() =>
                 onNotify('Post reporting is planned for an upcoming safety release.', 'info')
               }
@@ -119,6 +139,11 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
           onStatsChanged();
           onNotify('Post published.', 'success');
         }}
+      />
+
+      <UserProfileModal
+        username={profileUsername}
+        onClose={() => setProfileUsername(null)}
       />
     </div>
   );

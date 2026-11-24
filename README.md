@@ -48,4 +48,3 @@ npm run dev
 - `@dev_cbox` (pre-seeded `DEVELOPER` role)
 
 See `docs/API_AND_REALTIME.md`, `docs/SECURITY_AND_PERMISSIONS.md`, `docs/PWA_AND_CAPACITOR.md`, and `docs/EXTERNAL_SETUP.md` for complete technical documentation.
-"# cbox-app" 

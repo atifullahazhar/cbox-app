@@ -12,7 +12,7 @@ import { recordAuditEvent } from '../services/audit.js';
 export const friendsRouter = Router();
 friendsRouter.use(requireAuth);
 
-// A. General — Accepted friends only
+// A. General — Accepted friends only, with real presence + unread count
 friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
   const userId = req.auth!.user.id;
   const blockedIds = await getBlockedUserIds(userId);
@@ -39,16 +39,35 @@ friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
       },
     });
 
+    const unreadCount = conv
+      ? await prisma.message.count({
+          where: {
+            conversationId: conv.id,
+            senderId: other.id,
+            deletedAt: null,
+            deliveryState: { not: 'READ' },
+          },
+        })
+      : 0;
+
+    const lastMsg = conv?.messages[0];
     friends.push({
       friend: toPublicUserDTO(other),
       online: isUserOnline(other.id),
       conversationId: conv?.id ?? null,
-      lastMessage: conv?.messages[0]
+      unreadCount,
+      lastMessage: lastMsg
         ? {
-            id: conv.messages[0].id,
-            senderId: conv.messages[0].senderId,
-            content: conv.messages[0].content,
-            createdAt: conv.messages[0].createdAt.toISOString(),
+            id: lastMsg.id,
+            senderId: lastMsg.senderId,
+            content: lastMsg.deletedAt
+              ? 'Message deleted'
+              : lastMsg.mediaKind === 'IMAGE'
+                ? lastMsg.content || '📷 Photo'
+                : lastMsg.mediaKind === 'AUDIO'
+                  ? '🎤 Voice note'
+                  : lastMsg.content,
+            createdAt: lastMsg.createdAt.toISOString(),
           }
         : null,
     });
@@ -57,7 +76,6 @@ friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
   res.json({ friends });
 });
 
-// Exact username lookup for Sent Requests tab
 friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
   const raw = typeof req.query.username === 'string' ? req.query.username.trim().toLowerCase() : '';
   if (!raw) {
@@ -79,7 +97,6 @@ friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
 
   const blockState = await getBlockState(viewerId, target.id);
   if (blockState.blockedByOther) {
-    // Do not reveal private block details to the blocked user
     res.status(404).json({ error: 'No Cbox user found with that exact username.' });
     return;
   }
@@ -111,7 +128,6 @@ friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// B. Sent Requests
 friendsRouter.get('/requests/sent', async (req: AuthenticatedRequest, res) => {
   const requests = await prisma.friendRequest.findMany({
     where: { senderId: req.auth!.user.id, status: FriendRequestStatus.PENDING },
@@ -129,7 +145,6 @@ friendsRouter.get('/requests/sent', async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// C. Received Requests
 friendsRouter.get('/requests/received', async (req: AuthenticatedRequest, res) => {
   const requests = await prisma.friendRequest.findMany({
     where: { receiverId: req.auth!.user.id, status: FriendRequestStatus.PENDING },
@@ -147,7 +162,6 @@ friendsRouter.get('/requests/received', async (req: AuthenticatedRequest, res) =
   });
 });
 
-// Send Friend Request
 friendsRouter.post('/requests', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({ username: z.string().min(1).max(32) });
   const parsed = schema.safeParse(req.body);
@@ -225,7 +239,6 @@ friendsRouter.post('/requests', async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// Accept incoming request -> mutual friendship + conversation created
 friendsRouter.post('/requests/:id/accept', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const request = await prisma.friendRequest.findUnique({
@@ -276,7 +289,6 @@ friendsRouter.post('/requests/:id/accept', async (req: AuthenticatedRequest, res
   });
 });
 
-// Deny incoming request
 friendsRouter.post('/requests/:id/deny', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const request = await prisma.friendRequest.findUnique({ where: { id: req.params.id } });
@@ -299,7 +311,6 @@ friendsRouter.post('/requests/:id/deny', async (req: AuthenticatedRequest, res) 
   res.json({ ok: true });
 });
 
-// Cancel sent request
 friendsRouter.delete('/requests/:id', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const request = await prisma.friendRequest.findUnique({ where: { id: req.params.id } });
@@ -318,7 +329,6 @@ friendsRouter.delete('/requests/:id', async (req: AuthenticatedRequest, res) => 
   res.json({ ok: true });
 });
 
-// Blocked users list (visible in Settings)
 friendsRouter.get('/blocks', async (req: AuthenticatedRequest, res) => {
   const blocks = await prisma.block.findMany({
     where: { blockerId: req.auth!.user.id },
@@ -338,7 +348,6 @@ friendsRouter.get('/blocks', async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// Block a user
 friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({ userId: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
@@ -361,7 +370,6 @@ friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  // Configurable prototype policy flag: ALLOW_BLOCKING_DEVELOPERS
   if (target.role === UserRole.DEVELOPER && !env.allowBlockingDevelopers) {
     await recordAuditEvent({
       actorId: blockerId,
@@ -384,10 +392,7 @@ friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
       update: {},
       create: { blockerId, blockedId },
     }),
-    // Remove active friendship and cancel any pending friend requests between the pair
-    prisma.friendship.deleteMany({
-      where: { userAId, userBId },
-    }),
+    prisma.friendship.deleteMany({ where: { userAId, userBId } }),
     prisma.friendRequest.updateMany({
       where: {
         status: FriendRequestStatus.PENDING,
@@ -411,14 +416,11 @@ friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
   res.status(201).json({ ok: true });
 });
 
-// Unblock a user
 friendsRouter.delete('/blocks/:blockedId', async (req: AuthenticatedRequest, res) => {
   const blockerId = req.auth!.user.id;
   const blockedId = req.params.blockedId;
 
-  await prisma.block.deleteMany({
-    where: { blockerId, blockedId },
-  });
+  await prisma.block.deleteMany({ where: { blockerId, blockedId } });
 
   await recordAuditEvent({
     actorId: blockerId,

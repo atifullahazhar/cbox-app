@@ -18,16 +18,8 @@ const upload = multer({
   limits: { fileSize: env.maxUploadBytes, files: 1 },
 });
 
-function serializePost(post: {
-  id: string;
-  authorId: string;
-  mediaId: string;
-  caption: string;
-  audience: PostAudience;
-  createdAt: Date;
-  updatedAt: Date;
-  author: any;
-}, viewerId: string) {
+function serializePost(post: any, viewerId: string) {
+  const likes = Array.isArray(post.likes) ? post.likes : [];
   return {
     id: post.id,
     caption: post.caption,
@@ -35,13 +27,26 @@ function serializePost(post: {
     imageUrl: `/api/media/${post.mediaId}`,
     mediaId: post.mediaId,
     isOwner: post.authorId === viewerId,
+    likeCount: post._count?.likes ?? likes.length,
+    commentCount: post._count?.comments ?? 0,
+    likedByMe: likes.some((l: any) => l.userId === viewerId),
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
     author: toPublicUserDTO(post.author),
   };
 }
 
-// Feed of posts the viewer is authorized to see (own posts + PUBLIC + accepted friends' FRIENDS_ONLY)
+const postInclude = (viewerId: string) => ({
+  author: true,
+  likes: { where: { userId: viewerId }, select: { userId: true } },
+  _count: {
+    select: {
+      likes: true,
+      comments: { where: { deletedAt: null } },
+    },
+  },
+});
+
 postsRouter.get('/feed', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const [friendIds, blockedIds] = await Promise.all([
@@ -65,37 +70,31 @@ postsRouter.get('/feed', async (req: AuthenticatedRequest, res) => {
         },
       ],
     },
-    include: { author: true },
+    include: postInclude(viewerId),
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
 
-  res.json({
-    posts: posts.map((p) => serializePost(p, viewerId)),
-  });
+  res.json({ posts: posts.map((p) => serializePost(p, viewerId)) });
 });
 
-// Own posts (or another user's authorized posts) for Profile view
 postsRouter.get('/mine', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const posts = await prisma.post.findMany({
     where: { authorId: viewerId, deletedAt: null },
-    include: { author: true },
+    include: postInclude(viewerId),
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
 
-  res.json({
-    posts: posts.map((p) => serializePost(p, viewerId)),
-  });
+  res.json({ posts: posts.map((p) => serializePost(p, viewerId)) });
 });
 
-// Single post fetch with strict server-side audience verification
 postsRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const post = await prisma.post.findUnique({
     where: { id: req.params.id },
-    include: { author: true },
+    include: postInclude(viewerId),
   });
 
   if (!post || !(await canViewPost(viewerId, post))) {
@@ -106,7 +105,6 @@ postsRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
   res.json({ post: serializePost(post, viewerId) });
 });
 
-// Create post with image, caption, and confirmed audience (FRIENDS_ONLY or PUBLIC)
 postsRouter.post('/', uploadLimiter, upload.single('image'), async (req: AuthenticatedRequest, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'Please select a photo before posting.' });
@@ -147,7 +145,7 @@ postsRouter.post('/', uploadLimiter, upload.single('image'), async (req: Authent
           caption: parsed.data.caption,
           audience: parsed.data.audience,
         },
-        include: { author: true },
+        include: postInclude(req.auth!.user.id),
       });
     });
 
@@ -157,7 +155,6 @@ postsRouter.post('/', uploadLimiter, upload.single('image'), async (req: Authent
   }
 });
 
-// Author-only edit caption or audience
 postsRouter.patch('/:id', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({
     caption: z.string().trim().max(1000).optional(),
@@ -185,13 +182,12 @@ postsRouter.patch('/:id', async (req: AuthenticatedRequest, res) => {
       ...(parsed.data.caption !== undefined ? { caption: parsed.data.caption } : {}),
       ...(parsed.data.audience !== undefined ? { audience: parsed.data.audience } : {}),
     },
-    include: { author: true },
+    include: postInclude(req.auth!.user.id),
   });
 
   res.json({ post: serializePost(updated, req.auth!.user.id) });
 });
 
-// Author-only soft delete
 postsRouter.delete('/:id', async (req: AuthenticatedRequest, res) => {
   const existing = await prisma.post.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.deletedAt !== null) {
@@ -209,4 +205,125 @@ postsRouter.delete('/:id', async (req: AuthenticatedRequest, res) => {
   });
 
   res.json({ ok: true, id: existing.id });
+});
+
+// Toggle Like on an authorized post
+postsRouter.post('/:id/like', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  if (!post || !(await canViewPost(viewerId, post))) {
+    res.status(404).json({ error: 'Post not found.' });
+    return;
+  }
+
+  const existing = await prisma.postLike.findUnique({
+    where: { postId_userId: { postId: post.id, userId: viewerId } },
+  });
+
+  let likedByMe = false;
+  if (existing) {
+    await prisma.postLike.delete({ where: { id: existing.id } });
+    likedByMe = false;
+  } else {
+    await prisma.postLike.create({ data: { postId: post.id, userId: viewerId } });
+    likedByMe = true;
+  }
+
+  const likeCount = await prisma.postLike.count({ where: { postId: post.id } });
+  res.json({ likedByMe, likeCount });
+});
+
+// List comments for an authorized post
+postsRouter.get('/:id/comments', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  if (!post || !(await canViewPost(viewerId, post))) {
+    res.status(404).json({ error: 'Post not found.' });
+    return;
+  }
+
+  const blockedIds = await getBlockedUserIds(viewerId);
+  const comments = await prisma.postComment.findMany({
+    where: {
+      postId: post.id,
+      deletedAt: null,
+      authorId: blockedIds.size > 0 ? { notIn: Array.from(blockedIds) } : undefined,
+    },
+    include: { author: true },
+    orderBy: { createdAt: 'asc' },
+    take: 100,
+  });
+
+  res.json({
+    comments: comments.map((c) => ({
+      id: c.id,
+      postId: c.postId,
+      content: c.content,
+      isOwner: c.authorId === viewerId,
+      createdAt: c.createdAt.toISOString(),
+      author: toPublicUserDTO(c.author),
+    })),
+  });
+});
+
+// Add comment to an authorized post
+postsRouter.post('/:id/comments', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ content: z.string().trim().min(1).max(600) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Comment cannot be empty.' });
+    return;
+  }
+
+  const viewerId = req.auth!.user.id;
+  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  if (!post || !(await canViewPost(viewerId, post))) {
+    res.status(404).json({ error: 'Post not found.' });
+    return;
+  }
+
+  const created = await prisma.postComment.create({
+    data: {
+      postId: post.id,
+      authorId: viewerId,
+      content: parsed.data.content,
+    },
+    include: { author: true },
+  });
+
+  res.status(201).json({
+    comment: {
+      id: created.id,
+      postId: created.postId,
+      content: created.content,
+      isOwner: true,
+      createdAt: created.createdAt.toISOString(),
+      author: toPublicUserDTO(created.author),
+    },
+  });
+});
+
+// Delete own comment (or post author moderation)
+postsRouter.delete('/comments/:commentId', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const comment = await prisma.postComment.findUnique({
+    where: { id: req.params.commentId },
+    include: { post: { select: { authorId: true } } },
+  });
+
+  if (!comment || comment.deletedAt !== null) {
+    res.status(404).json({ error: 'Comment not found.' });
+    return;
+  }
+  if (comment.authorId !== viewerId && comment.post.authorId !== viewerId) {
+    res.status(403).json({ error: 'You cannot delete this comment.' });
+    return;
+  }
+
+  await prisma.postComment.update({
+    where: { id: comment.id },
+    data: { deletedAt: new Date() },
+  });
+
+  res.json({ ok: true });
 });

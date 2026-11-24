@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { MediaPurpose, Prisma, ThemePreference } from '@prisma/client';
+import { MediaPurpose, PostAudience, Prisma, ThemePreference } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { type AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
@@ -60,19 +60,12 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
     }
   }
 
-  if (parsed.data.primaryNickname !== undefined) {
-    updateData.primaryNickname = parsed.data.primaryNickname;
-  }
+  if (parsed.data.primaryNickname !== undefined) updateData.primaryNickname = parsed.data.primaryNickname;
   if (parsed.data.alternateNicknames !== undefined) {
-    // Deduplicate alternate nicknames cleanly
     updateData.alternateNicknames = Array.from(new Set(parsed.data.alternateNicknames));
   }
-  if (parsed.data.bio !== undefined) {
-    updateData.bio = parsed.data.bio;
-  }
-  if (parsed.data.theme !== undefined) {
-    updateData.theme = parsed.data.theme;
-  }
+  if (parsed.data.bio !== undefined) updateData.bio = parsed.data.bio;
+  if (parsed.data.theme !== undefined) updateData.theme = parsed.data.theme;
 
   try {
     const updated = await prisma.user.update({
@@ -123,7 +116,6 @@ async function handleProfileImageUpload(
       data: purpose === 'AVATAR' ? { avatarMediaId: asset.id } : { bannerMediaId: asset.id },
     });
 
-    // Clean up previous asset asynchronously
     if (previousMediaId) {
       const oldAsset = await prisma.mediaAsset.findUnique({ where: { id: previousMediaId } });
       if (oldAsset) {
@@ -178,6 +170,7 @@ profileRouter.delete('/me/banner', async (req: AuthenticatedRequest, res) => {
   res.json({ profile: toSelfUserDTO(updated) });
 });
 
+// Public / Friend profile view including authorized posts
 profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
   const normalized = req.params.username.trim().toLowerCase();
   const target = await prisma.user.findUnique({ where: { usernameNormalized: normalized } });
@@ -195,21 +188,51 @@ profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
     }
   }
 
-  const [isFriend, postCount, friendCount] = await Promise.all([
-    areFriends(viewerId, target.id),
-    prisma.post.count({
+  const isSelf = target.id === viewerId;
+  const isFriend = isSelf ? false : await areFriends(viewerId, target.id);
+  const canSeeFriendsOnly = isSelf || isFriend;
+
+  const [posts, friendCount] = await Promise.all([
+    prisma.post.findMany({
       where: {
         authorId: target.id,
         deletedAt: null,
-        ...(target.id === viewerId ? {} : { audience: 'PUBLIC' }),
+        ...(canSeeFriendsOnly ? {} : { audience: PostAudience.PUBLIC }),
       },
+      include: {
+        author: true,
+        likes: { where: { userId: viewerId }, select: { userId: true } },
+        _count: {
+          select: {
+            likes: true,
+            comments: { where: { deletedAt: null } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 24,
     }),
     prisma.friendship.count({ where: { OR: [{ userAId: target.id }, { userBId: target.id }] } }),
   ]);
 
   res.json({
     profile: toPublicUserDTO(target),
-    stats: { postCount, friendCount },
+    stats: { postCount: posts.length, friendCount },
     isFriend,
+    isSelf,
+    posts: posts.map((p) => ({
+      id: p.id,
+      caption: p.caption,
+      audience: p.audience,
+      imageUrl: `/api/media/${p.mediaId}`,
+      mediaId: p.mediaId,
+      isOwner: p.authorId === viewerId,
+      likeCount: p._count.likes,
+      commentCount: p._count.comments,
+      likedByMe: p.likes.length > 0,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
+      author: toPublicUserDTO(p.author),
+    })),
   });
 });

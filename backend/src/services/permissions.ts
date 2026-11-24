@@ -55,10 +55,6 @@ export async function getFriendIds(userId: string): Promise<string[]> {
   return rows.map((r) => (r.userAId === userId ? r.userBId : r.userAId));
 }
 
-/**
- * Enforces post audience rules strictly on the server.
- * Note: Developer role NEVER bypasses FRIENDS_ONLY post visibility or blocks.
- */
 export async function canViewPost(viewerId: string, post: {
   authorId: string;
   audience: PostAudience;
@@ -74,14 +70,30 @@ export async function canViewPost(viewerId: string, post: {
   return areFriends(viewerId, post.authorId);
 }
 
-/**
- * Authorizes access to any MediaAsset (AVATAR, BANNER, or POST_IMAGE).
- * Prevents bypassing post audience rules via direct /api/media/:id calls.
- */
+export async function canViewStory(viewerId: string, story: {
+  authorId: string;
+  audience: PostAudience;
+  expiresAt: Date;
+  deletedAt: Date | null;
+}): Promise<boolean> {
+  if (story.deletedAt !== null || story.expiresAt <= new Date()) return false;
+  if (story.authorId === viewerId) return true;
+
+  const blockState = await getBlockState(viewerId, story.authorId);
+  if (blockState.anyBlock) return false;
+
+  if (story.audience === PostAudience.PUBLIC) return true;
+  return areFriends(viewerId, story.authorId);
+}
+
 export async function canViewMedia(viewerId: string, mediaId: string): Promise<boolean> {
   const asset = await prisma.mediaAsset.findUnique({
     where: { id: mediaId },
-    include: { post: true },
+    include: {
+      post: true,
+      story: true,
+      message: { include: { conversation: true } },
+    },
   });
   if (!asset) return false;
 
@@ -90,7 +102,21 @@ export async function canViewMedia(viewerId: string, mediaId: string): Promise<b
     return canViewPost(viewerId, asset.post);
   }
 
-  // Avatars and banners are visible to authenticated users unless blocked
+  if (asset.purpose === 'STORY_IMAGE') {
+    if (!asset.story) return asset.ownerId === viewerId;
+    return canViewStory(viewerId, asset.story);
+  }
+
+  if (asset.purpose === 'CHAT_IMAGE' || asset.purpose === 'CHAT_AUDIO') {
+    if (!asset.message) return asset.ownerId === viewerId;
+    if (asset.message.deletedAt !== null) return false;
+    const conv = asset.message.conversation;
+    if (conv.userAId !== viewerId && conv.userBId !== viewerId) return false;
+    const otherId = conv.userAId === viewerId ? conv.userBId : conv.userAId;
+    const blockState = await getBlockState(viewerId, otherId);
+    return !blockState.anyBlock;
+  }
+
   if (asset.ownerId === viewerId) return true;
   const blockState = await getBlockState(viewerId, asset.ownerId);
   return !blockState.anyBlock;

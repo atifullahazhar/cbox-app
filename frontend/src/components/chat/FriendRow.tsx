@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MoreVertical, Ban, Flag } from 'lucide-react';
+import { MoreVertical, Ban, Flag, User } from 'lucide-react';
 import type { FriendListItem } from '../../types';
 import { Avatar } from '../ui/Avatar';
 
@@ -7,6 +7,7 @@ interface FriendRowProps {
   item: FriendListItem;
   selected?: boolean;
   onSelect: () => void;
+  onViewProfile?: () => void;
   onBlock: () => void;
   onReportSoon: () => void;
 }
@@ -15,6 +16,7 @@ export const FriendRow: React.FC<FriendRowProps> = ({
   item,
   selected = false,
   onSelect,
+  onViewProfile,
   onBlock,
   onReportSoon,
 }) => {
@@ -56,14 +58,21 @@ export const FriendRow: React.FC<FriendRowProps> = ({
             <p className="text-sm font-semibold text-cbox-text truncate">
               {item.friend.primaryNickname}
             </p>
-            {item.lastMessage && (
-              <span className="text-[11px] text-cbox-muted shrink-0">
-                {new Date(item.lastMessage.createdAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {item.unreadCount > 0 && (
+                <span className="px-1.5 min-w-[20px] h-5 flex items-center justify-center text-[11px] font-bold rounded-full bg-cbox-accent text-slate-950">
+                  {item.unreadCount}
+                </span>
+              )}
+              {item.lastMessage && (
+                <span className="text-[11px] text-cbox-muted">
+                  {new Date(item.lastMessage.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              )}
+            </div>
           </div>
           <p className="text-xs text-cbox-muted truncate">
             {item.lastMessage ? item.lastMessage.content : `@${item.friend.username}`}
@@ -87,6 +96,20 @@ export const FriendRow: React.FC<FriendRowProps> = ({
             role="menu"
             className="absolute right-0 mt-1 w-48 rounded-xl bg-cbox-surface border border-cbox-border shadow-soft py-1.5 z-20"
           >
+            {onViewProfile && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onViewProfile();
+                }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-cbox-text hover:bg-cbox-elevated text-left"
+              >
+                <User className="h-4 w-4" />
+                <span>View profile</span>
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

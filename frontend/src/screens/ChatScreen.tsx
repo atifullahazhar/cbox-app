@@ -7,13 +7,14 @@ import type {
   LookupResult,
   SafeUser,
 } from '../types';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiUploadWithProgress } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { Tabs } from '../components/ui/Tabs';
 import { FriendRow } from '../components/chat/FriendRow';
 import { RequestCard } from '../components/chat/RequestCard';
 import { ChatBubble } from '../components/chat/ChatBubble';
 import { MessageComposer } from '../components/chat/MessageComposer';
+import { UserProfileModal } from '../components/profile/UserProfileModal';
 import { Avatar } from '../components/ui/Avatar';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
@@ -22,7 +23,7 @@ import { Modal } from '../components/ui/Modal';
 interface ChatScreenProps {
   currentUser: SafeUser;
   isOnline: boolean;
-  onPendingCountChange: (count: number) => void;
+  onBadgeCountChange: (count: number) => void;
   onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void;
 }
 
@@ -31,7 +32,7 @@ type ChatTab = 'general' | 'sent' | 'received';
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   currentUser,
   isOnline,
-  onPendingCountChange,
+  onBadgeCountChange,
   onNotify,
 }) => {
   const [tab, setTab] = useState<ChatTab>('general');
@@ -52,10 +53,18 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [friendTyping, setFriendTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const [blockTarget, setBlockTarget] = useState<SafeUser | null>(null);
   const [blocking, setBlocking] = useState(false);
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
+
+  function syncTotalBadge(friendList: FriendListItem[], reqList: FriendRequestItem[]) {
+    const unread = friendList.reduce((acc, f) => acc + (f.unreadCount || 0), 0);
+    onBadgeCountChange(unread + reqList.length);
+  }
 
   async function refreshHub() {
     setLoading(true);
@@ -68,7 +77,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       setFriends(gRes.friends);
       setSentRequests(sRes.requests);
       setReceivedRequests(rRes.requests);
-      onPendingCountChange(rRes.requests.length);
+      syncTotalBadge(gRes.friends, rRes.requests);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Failed to load chat hub.', 'error');
     } finally {
@@ -81,36 +90,82 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   }, []);
 
   useEffect(() => {
+    syncTotalBadge(friends, receivedRequests);
+  }, [friends, receivedRequests]);
+
+  function markConversationRead(convId: string) {
+    apiFetch(`/api/chat/conversations/${convId}/read`, { method: 'POST' }).catch(() => {});
+    setFriends((prev) =>
+      prev.map((f) => (f.conversationId === convId ? { ...f, unreadCount: 0 } : f))
+    );
+  }
+
+  useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
     const onMessageNew = (msg: ChatMessage) => {
+      const isActive = msg.conversationId === activeConversationId;
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
         if (msg.clientTempId && prev.some((m) => m.id === msg.clientTempId)) {
           return prev.map((m) => (m.id === msg.clientTempId ? msg : m));
         }
-        if (msg.conversationId === activeConversationId) {
+        if (isActive) {
           return [...prev, msg];
         }
         return prev;
       });
+
+      if (isActive && msg.senderId !== currentUser.id) {
+        markConversationRead(msg.conversationId);
+        setFriendTyping(false);
+      }
 
       setFriends((prev) =>
         prev.map((item) =>
           item.conversationId === msg.conversationId
             ? {
                 ...item,
+                unreadCount:
+                  !isActive && msg.senderId !== currentUser.id
+                    ? (item.unreadCount || 0) + 1
+                    : item.unreadCount,
                 lastMessage: {
                   id: msg.id,
                   senderId: msg.senderId,
-                  content: msg.content,
+                  content:
+                    msg.mediaKind === 'IMAGE'
+                      ? msg.content || '📷 Photo'
+                      : msg.mediaKind === 'AUDIO'
+                        ? '🎤 Voice note'
+                        : msg.content,
                   createdAt: msg.createdAt,
                 },
               }
             : item
         )
       );
+    };
+
+    const onMessageUpdated = (msg: ChatMessage) => {
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
+    };
+
+    const onMessageRead = ({ conversationId }: { conversationId: string }) => {
+      if (conversationId === activeConversationId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.senderId === currentUser.id ? { ...m, deliveryState: 'READ' } : m
+          )
+        );
+      }
+    };
+
+    const onTyping = (data: { conversationId: string; userId: string; isTyping: boolean }) => {
+      if (data.conversationId === activeConversationId && data.userId !== currentUser.id) {
+        setFriendTyping(data.isTyping);
+      }
     };
 
     const onPresence = ({ userId, online }: { userId: string; online: boolean }) => {
@@ -125,9 +180,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     const onRequestReceived = (req: FriendRequestItem) => {
       setReceivedRequests((prev) => {
         if (prev.some((r) => r.id === req.id)) return prev;
-        const next = [req, ...prev];
-        onPendingCountChange(next.length);
-        return next;
+        return [req, ...prev];
       });
       onNotify(`New friend request from @${req.user.username}`, 'info');
     };
@@ -137,6 +190,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     };
 
     socket.on('message:new', onMessageNew);
+    socket.on('message:updated', onMessageUpdated);
+    socket.on('message:read', onMessageRead);
+    socket.on('chat:typing', onTyping);
     socket.on('presence:update', onPresence);
     socket.on('friend:request:received', onRequestReceived);
     socket.on('friend:request:accepted', onRefresh);
@@ -145,17 +201,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
     return () => {
       socket.off('message:new', onMessageNew);
+      socket.off('message:updated', onMessageUpdated);
+      socket.off('message:read', onMessageRead);
+      socket.off('chat:typing', onTyping);
       socket.off('presence:update', onPresence);
       socket.off('friend:request:received', onRequestReceived);
       socket.off('friend:request:accepted', onRefresh);
       socket.off('friend:request:updated', onRefresh);
       socket.off('friend:request:canceled', onRefresh);
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, currentUser.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, friendTyping]);
 
   const filteredFriends = useMemo(() => {
     const q = filterText.trim().toLowerCase();
@@ -169,6 +228,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   async function openConversation(item: FriendListItem) {
     setActiveFriend(item);
+    setFriendTyping(false);
+    setReplyTo(null);
     setLoadingMessages(true);
     setMessages([]);
     try {
@@ -190,6 +251,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         `/api/chat/conversations/${convId}/messages`
       );
       setMessages(res.messages);
+      markConversationRead(convId);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Unable to open conversation.', 'error');
       setActiveFriend(null);
@@ -199,9 +261,18 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   }
 
+  function handleTypingChange(isTyping: boolean) {
+    const socket = getSocket();
+    if (socket && activeConversationId) {
+      socket.emit('chat:typing', { conversationId: activeConversationId, isTyping });
+    }
+  }
+
   async function sendMessage(content: string, retryTempId?: string) {
     if (!activeConversationId) return;
     const tempId = retryTempId || `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const replyRef = replyTo;
+    setReplyTo(null);
 
     const optimistic: ChatMessage = {
       id: tempId,
@@ -209,6 +280,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       senderId: currentUser.id,
       clientTempId: tempId,
       content,
+      replyTo: replyRef
+        ? { id: replyRef.id, senderId: replyRef.senderId, content: replyRef.content }
+        : null,
       deliveryState: 'SENDING',
       createdAt: new Date().toISOString(),
     };
@@ -230,7 +304,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         `/api/chat/conversations/${activeConversationId}/messages`,
         {
           method: 'POST',
-          body: JSON.stringify({ content, clientTempId: tempId }),
+          body: JSON.stringify({
+            content,
+            clientTempId: tempId,
+            replyToId: replyRef?.id,
+          }),
         }
       );
       setMessages((prev) => prev.map((m) => (m.id === tempId ? res.message : m)));
@@ -239,6 +317,59 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         prev.map((m) => (m.id === tempId ? { ...m, deliveryState: 'FAILED' } : m))
       );
       onNotify(err instanceof Error ? err.message : 'Message failed to send.', 'error');
+    }
+  }
+
+  async function handleSendMedia(file: File, caption: string) {
+    if (!activeConversationId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    if (caption) fd.append('caption', caption);
+    if (replyTo) fd.append('replyToId', replyTo.id);
+    setReplyTo(null);
+    try {
+      const res = await apiUploadWithProgress<{ message: ChatMessage }>(
+        `/api/chat/conversations/${activeConversationId}/media`,
+        fd
+      );
+      setMessages((prev) => (prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]));
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Media upload failed.', 'error');
+    }
+  }
+
+  async function handleReact(messageId: string, emoji: string) {
+    try {
+      const res = await apiFetch<{ message: ChatMessage }>(`/api/chat/messages/${messageId}/reactions`, {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
+      });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Reaction failed.', 'error');
+    }
+  }
+
+  async function handleEditMessage(messageId: string, content: string) {
+    try {
+      const res = await apiFetch<{ message: ChatMessage }>(`/api/chat/messages/${messageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to edit message.', 'error');
+    }
+  }
+
+  async function handleDeleteMessage(messageId: string) {
+    try {
+      const res = await apiFetch<{ message: ChatMessage }>(`/api/chat/messages/${messageId}`, {
+        method: 'DELETE',
+      });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to delete message.', 'error');
     }
   }
 
@@ -296,9 +427,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setActionBusyId(requestId);
     try {
       await apiFetch(`/api/friends/requests/${requestId}/deny`, { method: 'POST' });
-      const next = receivedRequests.filter((r) => r.id !== requestId);
-      setReceivedRequests(next);
-      onPendingCountChange(next.length);
+      setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
       onNotify('Friend request denied.', 'info');
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Failed to deny request.', 'error');
@@ -358,20 +487,30 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <Avatar
-            src={activeFriend.friend.avatarUrl}
-            name={activeFriend.friend.primaryNickname}
-            size="md"
-            online={activeFriend.online}
-          />
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-cbox-text truncate">
-              {activeFriend.friend.primaryNickname}
-            </h2>
-            <p className="text-xs text-cbox-muted truncate">
-              @{activeFriend.friend.username} · {activeFriend.online ? 'Online' : 'Offline'}
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => setProfileUsername(activeFriend.friend.username)}
+            className="flex items-center gap-3 min-w-0 text-left hover:opacity-90"
+          >
+            <Avatar
+              src={activeFriend.friend.avatarUrl}
+              name={activeFriend.friend.primaryNickname}
+              size="md"
+              online={activeFriend.online}
+            />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-cbox-text truncate">
+                {activeFriend.friend.primaryNickname}
+              </h2>
+              <p className="text-xs text-cbox-muted truncate">
+                {friendTyping ? (
+                  <span className="text-cbox-accent font-medium">typing…</span>
+                ) : (
+                  `@${activeFriend.friend.username} · ${activeFriend.online ? 'Online' : 'Offline'}`
+                )}
+              </p>
+            </div>
+          </button>
         </div>
 
         <button
@@ -391,7 +530,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           <EmptyState
             icon={<MessageCircle className="h-6 w-6" />}
             title={`Start chatting with ${activeFriend.friend.primaryNickname}`}
-            description="Messages are persisted securely and synced in real time across desktop and Android."
+            description="Send a message, photo, or voice note — synced in real time across desktop and Android."
           />
         ) : (
           messages.map((m) => (
@@ -399,16 +538,45 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               key={m.id}
               message={m}
               isOwn={m.senderId === currentUser.id}
+              currentUserId={currentUser.id}
+              friendName={activeFriend.friend.primaryNickname}
               onRetry={
                 m.deliveryState === 'FAILED' ? () => sendMessage(m.content, m.id) : undefined
+              }
+              onReply={() => setReplyTo(m)}
+              onReact={(emoji) => handleReact(m.id, emoji)}
+              onEdit={
+                m.senderId === currentUser.id ? (txt) => handleEditMessage(m.id, txt) : undefined
+              }
+              onDelete={
+                m.senderId === currentUser.id ? () => handleDeleteMessage(m.id) : undefined
               }
             />
           ))
         )}
+        {friendTyping && (
+          <div className="text-xs text-cbox-muted italic px-2">
+            {activeFriend.friend.primaryNickname} is typing…
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
-      <MessageComposer offline={!isOnline} onSend={(txt) => sendMessage(txt)} />
+      <MessageComposer
+        offline={!isOnline}
+        replyTo={replyTo}
+        replyAuthorName={
+          replyTo
+            ? replyTo.senderId === currentUser.id
+              ? 'yourself'
+              : activeFriend.friend.primaryNickname
+            : undefined
+        }
+        onCancelReply={() => setReplyTo(null)}
+        onTypingChange={handleTypingChange}
+        onSend={(txt) => sendMessage(txt)}
+        onSendMedia={handleSendMedia}
+      />
     </section>
   ) : (
     <div className="hidden lg:flex h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface/60 items-center justify-center p-8">
@@ -422,7 +590,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   return (
     <div className="lg:grid lg:grid-cols-[340px_1fr] lg:gap-5 items-start">
-      {/* Left Hub Column — hidden on mobile while a conversation is open */}
       <div className={`space-y-4 ${activeFriend ? 'hidden lg:block' : 'block'}`}>
         <div>
           <h1 className="text-xl font-bold text-cbox-text">Chat</h1>
@@ -474,6 +641,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   item={item}
                   selected={activeFriend?.friend.id === item.friend.id}
                   onSelect={() => openConversation(item)}
+                  onViewProfile={() => setProfileUsername(item.friend.username)}
                   onBlock={() => setBlockTarget(item.friend)}
                   onReportSoon={() =>
                     onNotify('User reporting is planned for a future safety release.', 'info')
@@ -595,8 +763,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         )}
       </div>
 
-      {/* Right Conversation Column — full screen on mobile when selected, side-by-side on desktop */}
       <div className={activeFriend ? 'block' : 'hidden lg:block'}>{conversationPanel}</div>
+
+      <UserProfileModal
+        username={profileUsername}
+        onClose={() => setProfileUsername(null)}
+      />
 
       <Modal
         open={Boolean(blockTarget)}

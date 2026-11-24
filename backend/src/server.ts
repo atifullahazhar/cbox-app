@@ -14,6 +14,7 @@ import { profileRouter } from './routes/profile.js';
 import { friendsRouter } from './routes/friends.js';
 import { chatRouter } from './routes/chat.js';
 import { postsRouter } from './routes/posts.js';
+import { storiesRouter } from './routes/stories.js';
 import { mediaRouter } from './routes/media.js';
 import { developerRouter } from './routes/developer.js';
 
@@ -48,6 +49,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'cbox-backend',
+    phase: '1',
     timestamp: new Date().toISOString(),
   });
 });
@@ -57,10 +59,10 @@ app.use('/api/profile', profileRouter);
 app.use('/api/friends', friendsRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/posts', postsRouter);
+app.use('/api/stories', storiesRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/developer', developerRouter);
 
-// Single-origin production hosting: serve built React/Vite PWA from frontend/dist
 if (env.serveFrontend) {
   const frontendDist = path.resolve(__dirname, '../../frontend/dist');
   if (fs.existsSync(frontendDist)) {
@@ -74,14 +76,8 @@ if (env.serveFrontend) {
       res.sendFile(path.join(frontendDist, 'manifest.webmanifest'));
     });
 
-    app.use(
-      express.static(frontendDist, {
-        index: false,
-        maxAge: '7d',
-      })
-    );
+    app.use(express.static(frontendDist, { index: false, maxAge: '7d' }));
 
-    // SPA fallback for client routes (never swallow /api or /socket.io)
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
         return next();
@@ -94,7 +90,6 @@ if (env.serveFrontend) {
   }
 }
 
-// Global error handler — never expose stack traces or secrets in responses
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err && typeof err === 'object' && 'code' in err && (err as any).code === 'LIMIT_FILE_SIZE') {
     res.status(413).json({

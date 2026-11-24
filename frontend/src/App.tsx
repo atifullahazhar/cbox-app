@@ -18,13 +18,18 @@ export const App: React.FC = () => {
   const [stats, setStats] = useState<ProfileStats>({ postCount: 0, friendCount: 0 });
   const [booting, setBooting] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>('profile');
-  const [pendingRequests, setPendingRequests] = useState(0);
+  const [chatBadgeCount, setChatBadgeCount] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
 
   const isOnline = useOnlineStatus();
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
   useThemeSync(user?.theme || 'SYSTEM');
+
+  // Update browser tab title with live unread + request count
+  useEffect(() => {
+    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Cbox` : 'Cbox — Private Social Chat';
+  }, [chatBadgeCount]);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -74,6 +79,7 @@ export const App: React.FC = () => {
     }
     disconnectSocket();
     setUser(null);
+    setChatBadgeCount(0);
     setActiveNav('profile');
     notify('Signed out of Cbox.', 'info');
   }
@@ -121,7 +127,7 @@ export const App: React.FC = () => {
           active={activeNav}
           onNavigate={setActiveNav}
           user={user}
-          pendingRequestCount={pendingRequests}
+          pendingRequestCount={chatBadgeCount}
           isOnline={isOnline}
           isInstalledPwa={isInstalled}
           onOpenInstallModal={() => setInstallModalOpen(true)}
@@ -141,7 +147,7 @@ export const App: React.FC = () => {
             <ChatScreen
               currentUser={user}
               isOnline={isOnline}
-              onPendingCountChange={setPendingRequests}
+              onBadgeCountChange={setChatBadgeCount}
               onNotify={notify}
             />
           )}

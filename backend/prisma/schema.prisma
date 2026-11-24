@@ -34,6 +34,9 @@ enum MediaPurpose {
   AVATAR
   BANNER
   POST_IMAGE
+  CHAT_IMAGE
+  CHAT_AUDIO
+  STORY_IMAGE
 }
 
 enum MessageDeliveryState {
@@ -58,22 +61,27 @@ model User {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
-  avatarMedia         MediaAsset?     @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerMedia         MediaAsset?     @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  avatarMedia         MediaAsset?       @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerMedia         MediaAsset?       @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
 
   sessions            Session[]
-  uploadedMedia       MediaAsset[]    @relation("UploadedMedia")
-  sentRequests        FriendRequest[] @relation("SentFriendRequests")
-  receivedRequests    FriendRequest[] @relation("ReceivedFriendRequests")
-  friendshipsA        Friendship[]    @relation("FriendshipUserA")
-  friendshipsB        Friendship[]    @relation("FriendshipUserB")
-  blocksInitiated     Block[]         @relation("BlocksInitiated")
-  blocksReceived      Block[]         @relation("BlocksReceived")
-  conversationsA      Conversation[]  @relation("ConversationUserA")
-  conversationsB      Conversation[]  @relation("ConversationUserB")
-  messagesSent        Message[]       @relation("MessagesSent")
-  posts               Post[]          @relation("UserPosts")
-  auditEvents         AuditEvent[]    @relation("UserAuditEvents")
+  uploadedMedia       MediaAsset[]      @relation("UploadedMedia")
+  sentRequests        FriendRequest[]   @relation("SentFriendRequests")
+  receivedRequests    FriendRequest[]   @relation("ReceivedFriendRequests")
+  friendshipsA        Friendship[]      @relation("FriendshipUserA")
+  friendshipsB        Friendship[]      @relation("FriendshipUserB")
+  blocksInitiated     Block[]           @relation("BlocksInitiated")
+  blocksReceived      Block[]           @relation("BlocksReceived")
+  conversationsA      Conversation[]    @relation("ConversationUserA")
+  conversationsB      Conversation[]    @relation("ConversationUserB")
+  messagesSent        Message[]         @relation("MessagesSent")
+  messageReactions    MessageReaction[] @relation("UserMessageReactions")
+  posts               Post[]            @relation("UserPosts")
+  postLikes           PostLike[]        @relation("UserPostLikes")
+  postComments        PostComment[]     @relation("UserPostComments")
+  stories             Story[]           @relation("UserStories")
+  storyViews          StoryView[]       @relation("UserStoryViews")
+  auditEvents         AuditEvent[]      @relation("UserAuditEvents")
 
   @@index([usernameNormalized])
 }
@@ -111,6 +119,8 @@ model MediaAsset {
   avatarUsers User[]       @relation("UserAvatar")
   bannerUsers User[]       @relation("UserBanner")
   post        Post?
+  message     Message?
+  story       Story?
 
   @@index([ownerId, purpose])
 }
@@ -133,7 +143,6 @@ model FriendRequest {
 
 model Friendship {
   id        String   @id @default(cuid())
-  // Always stored with userAId < userBId lexicographically to guarantee canonical uniqueness
   userAId   String
   userBId   String
   createdAt DateTime @default(now())
@@ -162,7 +171,6 @@ model Block {
 
 model Conversation {
   id            String    @id @default(cuid())
-  // Always stored with userAId < userBId lexicographically
   userAId       String
   userBId       String
   lastMessageAt DateTime?
@@ -184,38 +192,122 @@ model Message {
   senderId       String
   clientTempId   String?              @db.VarChar(64)
   content        String               @db.VarChar(2000)
+  mediaId        String?              @unique
+  mediaKind      String?              @db.VarChar(16) // IMAGE | AUDIO
+  replyToId      String?
   deliveryState  MessageDeliveryState @default(SENT)
+  editedAt       DateTime?
+  deletedAt      DateTime?
   createdAt      DateTime             @default(now())
 
   conversation   Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User                 @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  media          MediaAsset?          @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  replyTo        Message?             @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]            @relation("MessageReplies")
+  reactions      MessageReaction[]
 
   @@index([conversationId, createdAt])
   @@index([senderId])
 }
 
-model Post {
-  id           String       @id @default(cuid())
-  authorId     String
-  mediaId      String       @unique
-  caption      String       @default("") @db.VarChar(1000)
-  audience     PostAudience @default(FRIENDS_ONLY)
-  deletedAt    DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String   @db.VarChar(16)
+  createdAt DateTime @default(now())
 
-  author       User         @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
-  media        MediaAsset   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserMessageReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model Post {
+  id           String        @id @default(cuid())
+  authorId     String
+  mediaId      String        @unique
+  caption      String        @default("") @db.VarChar(1000)
+  audience     PostAudience  @default(FRIENDS_ONLY)
+  deletedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  author       User          @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  media        MediaAsset    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  likes        PostLike[]
+  comments     PostComment[]
 
   @@index([authorId, deletedAt, createdAt])
   @@index([audience, deletedAt, createdAt])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserPostLikes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+}
+
+model PostComment {
+  id        String    @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String    @db.VarChar(600)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User      @relation("UserPostComments", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId, deletedAt, createdAt])
+}
+
+model Story {
+  id           String       @id @default(cuid())
+  authorId     String
+  mediaId      String?      @unique
+  textContent  String       @default("") @db.VarChar(280)
+  bgGradient   String       @default("from-sky-600 to-indigo-900") @db.VarChar(80)
+  audience     PostAudience @default(FRIENDS_ONLY)
+  expiresAt    DateTime
+  deletedAt    DateTime?
+  createdAt    DateTime     @default(now())
+
+  author       User         @relation("UserStories", fields: [authorId], references: [id], onDelete: Cascade)
+  media        MediaAsset?  @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  views        StoryView[]
+
+  @@index([authorId, expiresAt, deletedAt])
+  @@index([audience, expiresAt, deletedAt])
+}
+
+model StoryView {
+  id        String   @id @default(cuid())
+  storyId   String
+  viewerId  String
+  viewedAt  DateTime @default(now())
+
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewer    User     @relation("UserStoryViews", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, viewerId])
+  @@index([storyId])
 }
 
 model AuditEvent {
   id        String   @id @default(cuid())
   actorId   String?
   action    String   @db.VarChar(80)
-  outcome   String   @db.VarChar(24) // SUCCESS | FAILURE | DENIED
+  outcome   String   @db.VarChar(24)
   ipAddress String   @default("") @db.VarChar(64)
   metadata  Json?
   createdAt DateTime @default(now())

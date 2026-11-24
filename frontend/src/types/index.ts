@@ -37,6 +37,7 @@ export interface FriendListItem {
   friend: SafeUser;
   online: boolean;
   conversationId: string | null;
+  unreadCount: number;
   lastMessage: {
     id: string;
     senderId: string;
@@ -58,13 +59,28 @@ export interface LookupResult {
   pendingRequestId: string | null;
 }
 
+export interface MessageReactionGroup {
+  emoji: string;
+  userIds: string[];
+}
+
 export interface ChatMessage {
   id: string;
   conversationId: string;
   senderId: string;
   clientTempId?: string | null;
   content: string;
+  mediaUrl?: string | null;
+  mediaKind?: 'IMAGE' | 'AUDIO' | null;
+  replyTo?: {
+    id: string;
+    senderId: string;
+    content: string;
+  } | null;
+  reactions?: MessageReactionGroup[];
   deliveryState: 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  editedAt?: string | null;
+  deletedAt?: string | null;
   createdAt: string;
 }
 
@@ -75,8 +91,35 @@ export interface PostItem {
   imageUrl: string;
   mediaId: string;
   isOwner: boolean;
+  likeCount: number;
+  commentCount: number;
+  likedByMe: boolean;
   createdAt: string;
   updatedAt: string;
+  author: SafeUser;
+}
+
+export interface PostCommentItem {
+  id: string;
+  postId: string;
+  content: string;
+  isOwner: boolean;
+  createdAt: string;
+  author: SafeUser;
+}
+
+export interface StoryItem {
+  id: string;
+  imageUrl: string | null;
+  textContent: string;
+  bgGradient: string;
+  audience: PostAudience;
+  isOwner: boolean;
+  viewedByMe: boolean;
+  viewCount: number;
+  viewers?: Array<{ viewedAt: string; user: SafeUser }>;
+  expiresAt: string;
+  createdAt: string;
   author: SafeUser;
 }
 
