@@ -6,6 +6,7 @@ import { PostCard } from '../components/posts/PostCard';
 import { PostComposer } from '../components/posts/PostComposer';
 import { StoryBar } from '../components/stories/StoryBar';
 import { UserProfileModal } from '../components/profile/UserProfileModal';
+import { ReportModal } from '../components/ui/ReportModal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
 
@@ -20,6 +21,7 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
+  const [reportPost, setReportPost] = useState<PostItem | null>(null);
 
   async function loadFeed() {
     setLoading(true);
@@ -86,7 +88,6 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
         </button>
       </div>
 
-      {/* 24-Hour Stories Strip */}
       <StoryBar
         stories={stories}
         onStoryCreated={(s) => setStories((prev) => [s, ...prev])}
@@ -123,9 +124,7 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
               onEdit={handleEdit}
               onDelete={handleDelete}
               onOpenProfile={(uname) => setProfileUsername(uname)}
-              onReportSoon={() =>
-                onNotify('Post reporting is planned for an upcoming safety release.', 'info')
-              }
+              onReportSoon={() => setReportPost(post)}
             />
           ))}
         </div>
@@ -141,9 +140,15 @@ export const PostsScreen: React.FC<PostsScreenProps> = ({ onStatsChanged, onNoti
         }}
       />
 
-      <UserProfileModal
-        username={profileUsername}
-        onClose={() => setProfileUsername(null)}
+      <UserProfileModal username={profileUsername} onClose={() => setProfileUsername(null)} />
+
+      <ReportModal
+        open={Boolean(reportPost)}
+        targetLabel={reportPost ? `@${reportPost.author.username}'s post` : 'post'}
+        targetPostId={reportPost?.id}
+        targetUserId={reportPost?.author.id}
+        onClose={() => setReportPost(null)}
+        onSubmitted={() => onNotify('Post report submitted for safety review.', 'success')}
       />
     </div>
   );

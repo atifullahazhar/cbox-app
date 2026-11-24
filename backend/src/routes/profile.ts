@@ -23,6 +23,8 @@ const updateProfileSchema = z.object({
   alternateNicknames: z.array(z.string().trim().min(1).max(32)).max(6).optional(),
   bio: z.string().trim().max(280).optional(),
   theme: z.nativeEnum(ThemePreference).optional(),
+  hideOnlineStatus: z.boolean().optional(),
+  disableReadReceipts: z.boolean().optional(),
 });
 
 profileRouter.use(requireAuth);
@@ -66,6 +68,8 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   }
   if (parsed.data.bio !== undefined) updateData.bio = parsed.data.bio;
   if (parsed.data.theme !== undefined) updateData.theme = parsed.data.theme;
+  if (parsed.data.hideOnlineStatus !== undefined) updateData.hideOnlineStatus = parsed.data.hideOnlineStatus;
+  if (parsed.data.disableReadReceipts !== undefined) updateData.disableReadReceipts = parsed.data.disableReadReceipts;
 
   try {
     const updated = await prisma.user.update({
@@ -170,7 +174,6 @@ profileRouter.delete('/me/banner', async (req: AuthenticatedRequest, res) => {
   res.json({ profile: toSelfUserDTO(updated) });
 });
 
-// Public / Friend profile view including authorized posts
 profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
   const normalized = req.params.username.trim().toLowerCase();
   const target = await prisma.user.findUnique({ where: { usernameNormalized: normalized } });

@@ -17,6 +17,7 @@ import { postsRouter } from './routes/posts.js';
 import { storiesRouter } from './routes/stories.js';
 import { mediaRouter } from './routes/media.js';
 import { developerRouter } from './routes/developer.js';
+import { pushRouter, reportsRouter } from './routes/reports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,8 +49,9 @@ app.use('/api', generalApiLimiter);
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'cbox-backend',
-    phase: '1',
+    service: 'chatterbox-backend',
+    phase: '2',
+    pythonAuthEngine: true,
     timestamp: new Date().toISOString(),
   });
 });
@@ -61,6 +63,8 @@ app.use('/api/chat', chatRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/stories', storiesRouter);
 app.use('/api/media', mediaRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/push', pushRouter);
 app.use('/api/developer', developerRouter);
 
 if (env.serveFrontend) {
@@ -86,7 +90,7 @@ if (env.serveFrontend) {
       return res.sendFile(path.join(frontendDist, 'index.html'));
     });
   } else {
-    console.warn('[Cbox Backend] frontend/dist not found; serving API only.');
+    console.warn('[Chatterbox] frontend/dist not found; serving API only.');
   }
 }
 
@@ -97,7 +101,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
     });
     return;
   }
-  console.error('[Cbox Server Error]', err instanceof Error ? err.message : 'Unknown error');
+  console.error('[Chatterbox Server Error]', err instanceof Error ? err.message : 'Unknown error');
   res.status(500).json({ error: 'An unexpected server error occurred.' });
 });
 
@@ -105,6 +109,6 @@ const httpServer = http.createServer(app);
 attachSocketServer(httpServer);
 
 httpServer.listen(env.port, () => {
-  console.log(`[Cbox] Listening on port ${env.port} (${env.nodeEnv})`);
-  console.log(`[Cbox] Origin: ${env.appOrigin} | Serve Frontend: ${env.serveFrontend} | Storage: ${env.storageDriver}`);
+  console.log(`[Chatterbox] Listening on port ${env.port} (${env.nodeEnv})`);
+  console.log(`[Chatterbox] Python Auth: ${env.pythonAuthUrl} | SMS: ${env.smsProvider}`);
 });

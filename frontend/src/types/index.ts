@@ -12,6 +12,10 @@ export interface SafeUser {
   bio: string;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  phoneMasked?: string | null;
+  hasSecretPin?: boolean;
+  hideOnlineStatus?: boolean;
+  disableReadReceipts?: boolean;
   theme?: ThemePreference;
   role?: UserRole;
   isDemo?: boolean;
@@ -37,6 +41,8 @@ export interface FriendListItem {
   friend: SafeUser;
   online: boolean;
   conversationId: string | null;
+  hiddenInVault?: boolean;
+  disappearAfterSeconds?: number;
   unreadCount: number;
   lastMessage: {
     id: string;
@@ -79,6 +85,7 @@ export interface ChatMessage {
   } | null;
   reactions?: MessageReactionGroup[];
   deliveryState: 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  expiresAt?: string | null;
   editedAt?: string | null;
   deletedAt?: string | null;
   createdAt: string;
@@ -127,6 +134,17 @@ export interface BlockedUserItem {
   id: string;
   blockedAt: string;
   user: SafeUser;
+}
+
+export interface SafetyReportItem {
+  id: string;
+  reason: string;
+  details: string;
+  status: 'OPEN' | 'REVIEWED' | 'DISMISSED';
+  targetPostId: string | null;
+  createdAt: string;
+  reporter: SafeUser;
+  targetUser: SafeUser | null;
 }
 
 export interface DeveloperStatusResponse {

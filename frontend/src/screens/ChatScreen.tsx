@@ -1,5 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, UserPlus, MessageCircle, Inbox, Send, ArrowLeft, Ban } from 'lucide-react';
+import {
+  Search,
+  UserPlus,
+  MessageCircle,
+  Inbox,
+  Send,
+  ArrowLeft,
+  Ban,
+  Lock,
+  Timer,
+  EyeOff,
+} from 'lucide-react';
 import type {
   ChatMessage,
   FriendListItem,
@@ -15,6 +26,7 @@ import { RequestCard } from '../components/chat/RequestCard';
 import { ChatBubble } from '../components/chat/ChatBubble';
 import { MessageComposer } from '../components/chat/MessageComposer';
 import { UserProfileModal } from '../components/profile/UserProfileModal';
+import { ReportModal } from '../components/ui/ReportModal';
 import { Avatar } from '../components/ui/Avatar';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
@@ -43,6 +55,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>([]);
   const [receivedRequests, setReceivedRequests] = useState<FriendRequestItem[]>([]);
 
+  // Secret Mode Vault unlock state
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+
   const [lookupInput, setLookupInput] = useState('');
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
@@ -51,6 +69,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const [activeFriend, setActiveFriend] = useState<FriendListItem | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [disappearSeconds, setDisappearSeconds] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -58,6 +77,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const [blockTarget, setBlockTarget] = useState<SafeUser | null>(null);
+  const [reportUser, setReportUser] = useState<SafeUser | null>(null);
   const [blocking, setBlocking] = useState(false);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
 
@@ -111,9 +131,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         if (msg.clientTempId && prev.some((m) => m.id === msg.clientTempId)) {
           return prev.map((m) => (m.id === msg.clientTempId ? msg : m));
         }
-        if (isActive) {
-          return [...prev, msg];
-        }
+        if (isActive) return [...prev, msg];
         return prev;
       });
 
@@ -155,10 +173,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     const onMessageRead = ({ conversationId }: { conversationId: string }) => {
       if (conversationId === activeConversationId) {
         setMessages((prev) =>
-          prev.map((m) =>
-            m.senderId === currentUser.id ? { ...m, deliveryState: 'READ' } : m
-          )
+          prev.map((m) => (m.senderId === currentUser.id ? { ...m, deliveryState: 'READ' } : m))
         );
+      }
+    };
+
+    const onDisappear = (data: { conversationId: string; disappearAfterSeconds: number }) => {
+      if (data.conversationId === activeConversationId) {
+        setDisappearSeconds(data.disappearAfterSeconds);
       }
     };
 
@@ -169,29 +191,21 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     };
 
     const onPresence = ({ userId, online }: { userId: string; online: boolean }) => {
-      setFriends((prev) =>
-        prev.map((f) => (f.friend.id === userId ? { ...f, online } : f))
-      );
-      setActiveFriend((prev) =>
-        prev && prev.friend.id === userId ? { ...prev, online } : prev
-      );
+      setFriends((prev) => prev.map((f) => (f.friend.id === userId ? { ...f, online } : f)));
+      setActiveFriend((prev) => (prev && prev.friend.id === userId ? { ...prev, online } : prev));
     };
 
     const onRequestReceived = (req: FriendRequestItem) => {
-      setReceivedRequests((prev) => {
-        if (prev.some((r) => r.id === req.id)) return prev;
-        return [req, ...prev];
-      });
+      setReceivedRequests((prev) => (prev.some((r) => r.id === req.id) ? prev : [req, ...prev]));
       onNotify(`New friend request from @${req.user.username}`, 'info');
     };
 
-    const onRefresh = () => {
-      refreshHub();
-    };
+    const onRefresh = () => refreshHub();
 
     socket.on('message:new', onMessageNew);
     socket.on('message:updated', onMessageUpdated);
     socket.on('message:read', onMessageRead);
+    socket.on('conversation:disappear', onDisappear);
     socket.on('chat:typing', onTyping);
     socket.on('presence:update', onPresence);
     socket.on('friend:request:received', onRequestReceived);
@@ -203,6 +217,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       socket.off('message:new', onMessageNew);
       socket.off('message:updated', onMessageUpdated);
       socket.off('message:read', onMessageRead);
+      socket.off('conversation:disappear', onDisappear);
       socket.off('chat:typing', onTyping);
       socket.off('presence:update', onPresence);
       socket.off('friend:request:received', onRequestReceived);
@@ -216,18 +231,39 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, friendTyping]);
 
+  const vaultCount = useMemo(() => friends.filter((f) => f.hiddenInVault).length, [friends]);
+
   const filteredFriends = useMemo(() => {
     const q = filterText.trim().toLowerCase();
-    if (!q) return friends;
-    return friends.filter(
-      (f) =>
+    return friends.filter((f) => {
+      if (Boolean(f.hiddenInVault) !== vaultUnlocked) return false;
+      if (!q) return true;
+      return (
         f.friend.username.toLowerCase().includes(q) ||
         f.friend.primaryNickname.toLowerCase().includes(q)
-    );
-  }, [friends, filterText]);
+      );
+    });
+  }, [friends, filterText, vaultUnlocked]);
+
+  async function handleUnlockVault(e: React.FormEvent) {
+    e.preventDefault();
+    setPinError(null);
+    try {
+      await apiFetch('/api/auth/secret-pin/verify', {
+        method: 'POST',
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      setVaultUnlocked(true);
+      setPinModalOpen(false);
+      setPinInput('');
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : 'Incorrect PIN.');
+    }
+  }
 
   async function openConversation(item: FriendListItem) {
     setActiveFriend(item);
+    setDisappearSeconds(item.disappearAfterSeconds || 0);
     setFriendTyping(false);
     setReplyTo(null);
     setLoadingMessages(true);
@@ -241,16 +277,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         );
         convId = created.conversation.id;
         setFriends((prev) =>
-          prev.map((f) =>
-            f.friend.id === item.friend.id ? { ...f, conversationId: convId } : f
-          )
+          prev.map((f) => (f.friend.id === item.friend.id ? { ...f, conversationId: convId } : f))
         );
       }
       setActiveConversationId(convId);
-      const res = await apiFetch<{ messages: ChatMessage[] }>(
-        `/api/chat/conversations/${convId}/messages`
-      );
+      const res = await apiFetch<{
+        conversation: { disappearAfterSeconds: number; hiddenInVault: boolean };
+        messages: ChatMessage[];
+      }>(`/api/chat/conversations/${convId}/messages`);
       setMessages(res.messages);
+      setDisappearSeconds(res.conversation.disappearAfterSeconds || 0);
       markConversationRead(convId);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Unable to open conversation.', 'error');
@@ -258,6 +294,46 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       setActiveConversationId(null);
     } finally {
       setLoadingMessages(false);
+    }
+  }
+
+  async function handleToggleVaultForActive() {
+    if (!activeConversationId || !activeFriend) return;
+    const nextHidden = !activeFriend.hiddenInVault;
+    try {
+      await apiFetch(`/api/chat/conversations/${activeConversationId}/vault`, {
+        method: 'PATCH',
+        body: JSON.stringify({ hidden: nextHidden }),
+      });
+      setFriends((prev) =>
+        prev.map((f) =>
+          f.conversationId === activeConversationId ? { ...f, hiddenInVault: nextHidden } : f
+        )
+      );
+      setActiveFriend((prev) => (prev ? { ...prev, hiddenInVault: nextHidden } : prev));
+      onNotify(
+        nextHidden ? 'Chat moved to your Secret Vault.' : 'Chat restored to General list.',
+        'success'
+      );
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to update Secret Vault.', 'error');
+    }
+  }
+
+  async function handleSetDisappear(seconds: number) {
+    if (!activeConversationId) return;
+    try {
+      await apiFetch(`/api/chat/conversations/${activeConversationId}/disappear`, {
+        method: 'PATCH',
+        body: JSON.stringify({ seconds }),
+      });
+      setDisappearSeconds(seconds);
+      onNotify(
+        seconds === 0 ? 'Disappearing messages turned off.' : 'Disappearing timer updated.',
+        'info'
+      );
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to update timer.', 'error');
     }
   }
 
@@ -304,11 +380,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         `/api/chat/conversations/${activeConversationId}/messages`,
         {
           method: 'POST',
-          body: JSON.stringify({
-            content,
-            clientTempId: tempId,
-            replyToId: replyRef?.id,
-          }),
+          body: JSON.stringify({ content, clientTempId: tempId, replyToId: replyRef?.id }),
         }
       );
       setMessages((prev) => prev.map((m) => (m.id === tempId ? res.message : m)));
@@ -463,7 +535,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         setMessages([]);
       }
       setBlockTarget(null);
-      onNotify(`Blocked @${blockTarget.username}. Manage blocks in Profile → Settings.`, 'success');
+      onNotify(`Blocked @${blockTarget.username}.`, 'success');
       await refreshHub();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Unable to block user.', 'error');
@@ -474,7 +546,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const conversationPanel = activeFriend ? (
     <section className="flex flex-col h-[calc(100dvh-10.5rem)] md:h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft">
-      <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-cbox-border bg-cbox-surface shrink-0">
+      <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-cbox-border bg-cbox-surface shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -513,14 +585,45 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setBlockTarget(activeFriend.friend)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-cbox-danger hover:bg-cbox-danger/10 border border-cbox-danger/25 shrink-0"
-        >
-          <Ban className="h-3.5 w-3.5" />
-          Block
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Disappearing Timer Control */}
+          <label className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cbox-elevated border border-cbox-border text-[11px] text-cbox-muted">
+            <Timer className="h-3.5 w-3.5 text-cbox-violet" />
+            <select
+              aria-label="Disappearing messages timer"
+              value={disappearSeconds}
+              onChange={(e) => handleSetDisappear(Number(e.target.value))}
+              className="bg-transparent text-cbox-text font-medium focus:outline-none"
+            >
+              <option value={0}>Timer: Off</option>
+              <option value={300}>5 min</option>
+              <option value={3600}>1 hour</option>
+              <option value={86400}>24 hours</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleToggleVaultForActive}
+            title={activeFriend.hiddenInVault ? 'Unhide from Secret Vault' : 'Hide in Secret Vault'}
+            className={`p-2 rounded-xl border text-xs transition ${
+              activeFriend.hiddenInVault
+                ? 'border-cbox-violet bg-cbox-violet/15 text-cbox-violet'
+                : 'border-cbox-border text-cbox-muted hover:text-cbox-text'
+            }`}
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setBlockTarget(activeFriend.friend)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-cbox-danger hover:bg-cbox-danger/10 border border-cbox-danger/25"
+          >
+            <Ban className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Block</span>
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-cbox-bg/50">
@@ -540,17 +643,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               isOwn={m.senderId === currentUser.id}
               currentUserId={currentUser.id}
               friendName={activeFriend.friend.primaryNickname}
-              onRetry={
-                m.deliveryState === 'FAILED' ? () => sendMessage(m.content, m.id) : undefined
-              }
+              onRetry={m.deliveryState === 'FAILED' ? () => sendMessage(m.content, m.id) : undefined}
               onReply={() => setReplyTo(m)}
               onReact={(emoji) => handleReact(m.id, emoji)}
-              onEdit={
-                m.senderId === currentUser.id ? (txt) => handleEditMessage(m.id, txt) : undefined
-              }
-              onDelete={
-                m.senderId === currentUser.id ? () => handleDeleteMessage(m.id) : undefined
-              }
+              onEdit={m.senderId === currentUser.id ? (txt) => handleEditMessage(m.id, txt) : undefined}
+              onDelete={m.senderId === currentUser.id ? () => handleDeleteMessage(m.id) : undefined}
             />
           ))
         )}
@@ -583,7 +680,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       <EmptyState
         icon={<MessageCircle className="h-6 w-6" />}
         title="Select a friend to chat"
-        description="Pick an accepted friend from the General list to open your private real-time conversation."
+        description="Pick an accepted friend from the list to open your private real-time conversation."
       />
     </div>
   );
@@ -591,11 +688,34 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   return (
     <div className="lg:grid lg:grid-cols-[340px_1fr] lg:gap-5 items-start">
       <div className={`space-y-4 ${activeFriend ? 'hidden lg:block' : 'block'}`}>
-        <div>
-          <h1 className="text-xl font-bold text-cbox-text">Chat</h1>
-          <p className="text-xs text-cbox-muted">
-            Accepted friends and incoming/outgoing friend requests.
-          </p>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-cbox-text">Chat</h1>
+            <p className="text-xs text-cbox-muted">
+              {vaultUnlocked ? 'Secret Vault (Unlocked)' : 'Accepted friends & requests'}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (vaultUnlocked) {
+                setVaultUnlocked(false);
+              } else {
+                setPinError(null);
+                setPinInput('');
+                setPinModalOpen(true);
+              }
+            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              vaultUnlocked
+                ? 'border-cbox-violet bg-cbox-violet text-white'
+                : 'border-cbox-violet/40 bg-cbox-violet/10 text-cbox-violet hover:bg-cbox-violet/20'
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5" />
+            {vaultUnlocked ? 'Lock Vault' : `Secret Vault${vaultCount > 0 ? ` (${vaultCount})` : ''}`}
+          </button>
         </div>
 
         <div className="relative">
@@ -614,7 +734,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           active={tab}
           onChange={setTab}
           options={[
-            { id: 'general', label: 'General', badge: friends.length },
+            { id: 'general', label: vaultUnlocked ? 'Vault' : 'General', badge: filteredFriends.length },
             { id: 'sent', label: 'Sent', badge: sentRequests.length },
             { id: 'received', label: 'Received', badge: receivedRequests.length },
           ]}
@@ -625,12 +745,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         ) : tab === 'general' ? (
           filteredFriends.length === 0 ? (
             <EmptyState
-              icon={<MessageCircle className="h-6 w-6" />}
-              title={friends.length === 0 ? 'No friends yet' : 'No matching friends'}
+              icon={vaultUnlocked ? <Lock className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
+              title={vaultUnlocked ? 'No hidden chats in Secret Vault' : 'No friends yet'}
               description={
-                friends.length === 0
-                  ? 'Open Sent to find a friend by exact username and start a private 1:1 chat.'
-                  : 'Try clearing your search filter.'
+                vaultUnlocked
+                  ? 'Open any chat and tap the eye-off icon in the top bar to move it into your PIN-locked Secret Vault.'
+                  : 'Open Sent to find a friend by exact username and start a private 1:1 chat.'
               }
             />
           ) : (
@@ -643,9 +763,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   onSelect={() => openConversation(item)}
                   onViewProfile={() => setProfileUsername(item.friend.username)}
                   onBlock={() => setBlockTarget(item.friend)}
-                  onReportSoon={() =>
-                    onNotify('User reporting is planned for a future safety release.', 'info')
-                  }
+                  onReportSoon={() => setReportUser(item.friend)}
                 />
               ))}
             </div>
@@ -683,11 +801,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               {lookupResult && (
                 <div className="p-3 rounded-xl bg-cbox-elevated border border-cbox-border flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <Avatar
-                      src={lookupResult.user.avatarUrl}
-                      name={lookupResult.user.primaryNickname}
-                      size="sm"
-                    />
+                    <Avatar src={lookupResult.user.avatarUrl} name={lookupResult.user.primaryNickname} size="sm" />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-cbox-text truncate">
                         {lookupResult.user.primaryNickname}
@@ -765,16 +879,51 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
       <div className={activeFriend ? 'block' : 'hidden lg:block'}>{conversationPanel}</div>
 
-      <UserProfileModal
-        username={profileUsername}
-        onClose={() => setProfileUsername(null)}
+      <UserProfileModal username={profileUsername} onClose={() => setProfileUsername(null)} />
+
+      {/* Secret Vault PIN Unlock Modal */}
+      <Modal
+        open={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        title="Unlock Secret Vault"
+        description="Enter your 4–6 digit Secret Mode PIN to view hidden chats."
+        maxWidthClass="max-w-sm"
+      >
+        <form onSubmit={handleUnlockVault} className="space-y-4">
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            required
+            autoFocus
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+            placeholder="••••"
+            className="w-full text-center text-lg tracking-[0.5em] rounded-xl bg-cbox-elevated border border-cbox-border px-4 py-3 text-cbox-text"
+          />
+          {pinError && <p className="text-xs text-cbox-danger text-center">{pinError}</p>}
+          <button
+            type="submit"
+            className="w-full py-2.5 rounded-xl bg-cbox-violet text-white font-semibold text-sm"
+          >
+            Unlock Vault
+          </button>
+        </form>
+      </Modal>
+
+      <ReportModal
+        open={Boolean(reportUser)}
+        targetLabel={reportUser ? `@${reportUser.username}` : 'user'}
+        targetUserId={reportUser?.id}
+        onClose={() => setReportUser(null)}
+        onSubmitted={() => onNotify('User report submitted for safety review.', 'success')}
       />
 
       <Modal
         open={Boolean(blockTarget)}
         onClose={() => setBlockTarget(null)}
         title={`Block @${blockTarget?.username}?`}
-        description="Blocking removes the friendship and prevents new direct messages and friend requests between both accounts."
+        description="Blocking removes the friendship and prevents new direct messages and friend requests."
         maxWidthClass="max-w-md"
       >
         <div className="flex justify-end gap-2">

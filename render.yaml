@@ -1,5 +1,4 @@
-# Render Blueprint — One-click PostgreSQL + Full-Stack Cbox Web Service
-# Push this repository to GitHub, then on Render click: New -> Blueprint -> Select Repo
+# Render Blueprint — Chatterbox Phase 2 (Python FastAPI Auth + Node.js Express/Socket.IO + PostgreSQL)
 
 databases:
   - name: cbox-db
@@ -10,10 +9,9 @@ databases:
 services:
   - type: web
     name: cbox-app
-    runtime: node
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
-    buildCommand: npm run render:build
-    startCommand: npm run render:start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -26,12 +24,18 @@ services:
         value: "true"
       - key: STORAGE_DRIVER
         value: local
+      - key: SMS_PROVIDER
+        value: demo
+      - key: OTP_DEMO_MODE
+        value: "true"
       - key: ALLOW_BLOCKING_DEVELOPERS
         value: "false"
       - key: DEVELOPER_CODE_ALLOW_DEMO_9_DIGIT
         value: "true"
       - key: DEVELOPER_ACCESS_CODE
         sync: false
+      - key: INTERNAL_AUTH_KEY
+        generateValue: true
       - key: SESSION_SECRET
         generateValue: true
       - key: DATABASE_URL

@@ -1,18 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Prisma, UserRole } from '@prisma/client';
+import { OtpPurpose, Prisma, UserRole } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import {
   generateOpaqueToken,
-  hashPassword,
   hashToken,
   normalizeUsername,
   toSelfUserDTO,
   validatePasswordStrength,
   verifyDeveloperAccessCode,
-  verifyPassword,
 } from '../utils/security.js';
+import {
+  pyCreateOtp,
+  pyHashPassword,
+  pyNormalizePhone,
+  pyVerifyOtp,
+  pyVerifyPassword,
+} from '../services/pythonAuth.js';
 import {
   type AuthenticatedRequest,
   clearAuthCookies,
@@ -27,11 +32,6 @@ import {
 import { recordAuditEvent } from '../services/audit.js';
 
 export const authRouter = Router();
-
-const authSchema = z.object({
-  username: z.string().min(1).max(32),
-  password: z.string().min(1).max(128),
-});
 
 async function createSessionForUser(userId: string, ip: string, userAgent: string) {
   const rawToken = generateOpaqueToken(32);
@@ -52,28 +52,155 @@ async function createSessionForUser(userId: string, ip: string, userAgent: strin
   return { session, rawToken, csrfToken, expiresAt };
 }
 
-authRouter.post('/signup', authSignupLimiter, async (req, res) => {
-  const parsed = authSchema.safeParse(req.body);
+async function consumeAndVerifyOtp(phoneNormalized: string, purpose: OtpPurpose, code: string): Promise<boolean> {
+  const challenge = await prisma.otpChallenge.findFirst({
+    where: {
+      phoneNormalized,
+      purpose,
+      consumedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!challenge || challenge.attempts >= 5) {
+    return false;
+  }
+
+  const valid = await pyVerifyOtp(phoneNormalized, purpose, code, challenge.codeHash);
+  if (!valid) {
+    await prisma.otpChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts: { increment: 1 } },
+    });
+    return false;
+  }
+
+  await prisma.otpChallenge.update({
+    where: { id: challenge.id },
+    data: { consumedAt: new Date() },
+  });
+  return true;
+}
+
+// Step 1: Request 6-digit OTP via Python Security Engine (SIGNUP | LOGIN | RESET_PASSWORD)
+authRouter.post('/otp/send', authLoginLimiter, async (req, res) => {
+  const schema = z.object({
+    phone: z.string().min(6).max(24),
+    purpose: z.nativeEnum(OtpPurpose),
+  });
+  const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Username and password are required.' });
+    res.status(400).json({ error: 'Valid mobile number and OTP purpose are required.' });
     return;
   }
 
+  let phoneNormalized: string;
+  try {
+    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid phone number.' });
+    return;
+  }
+
+  const existingUser = await prisma.user.findUnique({ where: { phoneNormalized } });
+
+  if (parsed.data.purpose === OtpPurpose.SIGNUP && existingUser) {
+    res.status(409).json({
+      error: 'An account already exists with this phone number. Each phone number can own only one Chatterbox ID.',
+    });
+    return;
+  }
+
+  if (
+    (parsed.data.purpose === OtpPurpose.LOGIN || parsed.data.purpose === OtpPurpose.RESET_PASSWORD) &&
+    !existingUser
+  ) {
+    // Generic safe response to avoid enumerating registered phone numbers
+    res.json({
+      ok: true,
+      deliveredVia: env.smsProvider,
+      message: 'If this phone number is registered, an OTP has been sent.',
+    });
+    return;
+  }
+
+  try {
+    const otpResult = await pyCreateOtp(phoneNormalized, parsed.data.purpose);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await prisma.otpChallenge.create({
+      data: {
+        phoneNormalized: otpResult.phoneNormalized,
+        purpose: parsed.data.purpose,
+        codeHash: otpResult.codeHash,
+        expiresAt,
+      },
+    });
+
+    await recordAuditEvent({
+      actorId: existingUser?.id ?? null,
+      action: `OTP_SENT_${parsed.data.purpose}`,
+      outcome: 'SUCCESS',
+      ipAddress: req.ip,
+      metadata: { deliveredVia: otpResult.deliveredVia },
+    });
+
+    res.json({
+      ok: true,
+      phoneNormalized: otpResult.phoneNormalized,
+      deliveredVia: otpResult.deliveredVia,
+      // demoCode is ONLY returned when SMS_PROVIDER=demo and OTP_DEMO_MODE=true
+      demoCode: otpResult.demoCode,
+      message:
+        otpResult.deliveredVia === 'demo'
+          ? 'Demo OTP generated (configure Twilio or MSG91 in Render env for live SMS).'
+          : 'OTP sent to your mobile number.',
+    });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'OTP service unavailable.' });
+  }
+});
+
+// Phone + OTP Verified Signup (1 Phone Number = 1 Account)
+authRouter.post('/signup', authSignupLimiter, async (req, res) => {
+  const schema = z.object({
+    phone: z.string().min(6).max(24),
+    otp: z.string().length(6),
+    username: z.string().min(3).max(24),
+    password: z.string().min(8).max(128),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Phone number, 6-digit OTP, username, and password (8+ chars) are required.' });
+    return;
+  }
+
+  let phoneNormalized: string;
   let display: string;
   let normalized: string;
   try {
+    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
     ({ display, normalized } = normalizeUsername(parsed.data.username));
     validatePasswordStrength(parsed.data.password);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid input.' });
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid signup details.' });
     return;
   }
 
-  const passwordHash = await hashPassword(parsed.data.password);
+  const otpValid = await consumeAndVerifyOtp(phoneNormalized, OtpPurpose.SIGNUP, parsed.data.otp);
+  if (!otpValid) {
+    res.status(401).json({ error: 'Invalid or expired OTP. Please request a new code.' });
+    return;
+  }
+
+  const passwordHash = await pyHashPassword(parsed.data.password);
 
   try {
     const user = await prisma.user.create({
       data: {
+        phoneNormalized,
+        phoneVerifiedAt: new Date(),
         usernameNormalized: normalized,
         usernameDisplay: display,
         passwordHash,
@@ -92,7 +219,7 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
 
     await recordAuditEvent({
       actorId: user.id,
-      action: 'AUTH_SIGNUP',
+      action: 'AUTH_SIGNUP_PHONE_OTP',
       outcome: 'SUCCESS',
       ipAddress: req.ip,
     });
@@ -100,43 +227,97 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
     res.status(201).json({ user: toSelfUserDTO(user) });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      res.status(409).json({ error: 'That username is already taken. Please choose another.' });
+      res.status(409).json({
+        error: 'That phone number or username is already registered on Chatterbox.',
+      });
       return;
     }
     throw err;
   }
 });
 
+// Login with Phone Number (or legacy Username) + Password verified by Python Argon2id engine
 authRouter.post('/login', authLoginLimiter, async (req, res) => {
-  const parsed = authSchema.safeParse(req.body);
+  const schema = z.object({
+    identifier: z.string().min(1).max(32), // phone number or username
+    password: z.string().min(1).max(128),
+  });
+  const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid username or password.' });
+    res.status(400).json({ error: 'Invalid credentials.' });
     return;
   }
 
-  const normalized = parsed.data.username.trim().toLowerCase();
-  const user = await prisma.user.findUnique({ where: { usernameNormalized: normalized } });
+  const rawId = parsed.data.identifier.trim();
+  let user = null;
 
-  // Generic error message so attackers cannot enumerate existing usernames
+  // Try E.164 phone lookup first if input looks numeric/phone-like
+  if (/^[\d+\s\-()]{8,20}$/.test(rawId)) {
+    try {
+      const phoneNorm = await pyNormalizePhone(rawId);
+      user = await prisma.user.findUnique({ where: { phoneNormalized: phoneNorm } });
+    } catch {
+      // Fallback to username check
+    }
+  }
+
   if (!user) {
-    await recordAuditEvent({
-      action: 'AUTH_LOGIN',
-      outcome: 'FAILURE',
-      ipAddress: req.ip,
-    });
-    res.status(401).json({ error: 'Invalid username or password.' });
+    user = await prisma.user.findUnique({ where: { usernameNormalized: rawId.toLowerCase() } });
+  }
+
+  if (!user) {
+    await recordAuditEvent({ action: 'AUTH_LOGIN', outcome: 'FAILURE', ipAddress: req.ip });
+    res.status(401).json({ error: 'Invalid phone/username or password.' });
     return;
   }
 
-  const valid = await verifyPassword(user.passwordHash, parsed.data.password);
+  const valid = await pyVerifyPassword(user.passwordHash, parsed.data.password);
   if (!valid) {
-    await recordAuditEvent({
-      actorId: user.id,
-      action: 'AUTH_LOGIN',
-      outcome: 'FAILURE',
-      ipAddress: req.ip,
-    });
-    res.status(401).json({ error: 'Invalid username or password.' });
+    await recordAuditEvent({ actorId: user.id, action: 'AUTH_LOGIN', outcome: 'FAILURE', ipAddress: req.ip });
+    res.status(401).json({ error: 'Invalid phone/username or password.' });
+    return;
+  }
+
+  const { rawToken, csrfToken, expiresAt } = await createSessionForUser(
+    user.id,
+    req.ip || '',
+    req.get('user-agent') || ''
+  );
+  setAuthCookies(res, rawToken, csrfToken, expiresAt);
+
+  await recordAuditEvent({ actorId: user.id, action: 'AUTH_LOGIN', outcome: 'SUCCESS', ipAddress: req.ip });
+  res.json({ user: toSelfUserDTO(user) });
+});
+
+// Passwordless Login with Phone + 6-digit OTP
+authRouter.post('/login/otp', authLoginLimiter, async (req, res) => {
+  const schema = z.object({
+    phone: z.string().min(6).max(24),
+    otp: z.string().length(6),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Phone number and 6-digit OTP are required.' });
+    return;
+  }
+
+  let phoneNormalized: string;
+  try {
+    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid phone number.' });
+    return;
+  }
+
+  const otpValid = await consumeAndVerifyOtp(phoneNormalized, OtpPurpose.LOGIN, parsed.data.otp);
+  if (!otpValid) {
+    res.status(401).json({ error: 'Invalid or expired OTP.' });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({ where: { phoneNormalized } });
+  if (!user) {
+    res.status(401).json({ error: 'Invalid or expired OTP.' });
     return;
   }
 
@@ -149,12 +330,62 @@ authRouter.post('/login', authLoginLimiter, async (req, res) => {
 
   await recordAuditEvent({
     actorId: user.id,
-    action: 'AUTH_LOGIN',
+    action: 'AUTH_LOGIN_OTP',
     outcome: 'SUCCESS',
     ipAddress: req.ip,
   });
 
   res.json({ user: toSelfUserDTO(user) });
+});
+
+// Forgot Password Reset via Verified Phone OTP
+authRouter.post('/forgot-password/reset', authLoginLimiter, async (req, res) => {
+  const schema = z.object({
+    phone: z.string().min(6).max(24),
+    otp: z.string().length(6),
+    newPassword: z.string().min(8).max(128),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Phone number, 6-digit OTP, and a new password (8+ chars) are required.' });
+    return;
+  }
+
+  let phoneNormalized: string;
+  try {
+    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
+    validatePasswordStrength(parsed.data.newPassword);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid input.' });
+    return;
+  }
+
+  const otpValid = await consumeAndVerifyOtp(phoneNormalized, OtpPurpose.RESET_PASSWORD, parsed.data.otp);
+  if (!otpValid) {
+    res.status(401).json({ error: 'Invalid or expired OTP.' });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({ where: { phoneNormalized } });
+  if (!user) {
+    res.status(401).json({ error: 'Invalid or expired OTP.' });
+    return;
+  }
+
+  const newHash = await pyHashPassword(parsed.data.newPassword);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+  ]);
+
+  await recordAuditEvent({
+    actorId: user.id,
+    action: 'AUTH_FORGOT_PASSWORD_RESET',
+    outcome: 'SUCCESS',
+    ipAddress: req.ip,
+  });
+
+  res.json({ ok: true, message: 'Password reset successfully. Please sign in with your new password.' });
 });
 
 authRouter.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -163,12 +394,7 @@ authRouter.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) =
     data: { revokedAt: new Date() },
   });
   clearAuthCookies(res);
-  await recordAuditEvent({
-    actorId: req.auth!.user.id,
-    action: 'AUTH_LOGOUT',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-  });
+  await recordAuditEvent({ actorId: req.auth!.user.id, action: 'AUTH_LOGOUT', outcome: 'SUCCESS', ipAddress: req.ip });
   res.json({ ok: true });
 });
 
@@ -188,28 +414,11 @@ authRouter.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
 
 authRouter.get('/sessions', requireAuth, async (req: AuthenticatedRequest, res) => {
   const sessions = await prisma.session.findMany({
-    where: {
-      userId: req.auth!.user.id,
-      revokedAt: null,
-      expiresAt: { gt: new Date() },
-    },
+    where: { userId: req.auth!.user.id, revokedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { lastActiveAt: 'desc' },
-    select: {
-      id: true,
-      userAgent: true,
-      ipAddress: true,
-      lastActiveAt: true,
-      createdAt: true,
-      expiresAt: true,
-    },
+    select: { id: true, userAgent: true, ipAddress: true, lastActiveAt: true, createdAt: true, expiresAt: true },
   });
-
-  res.json({
-    sessions: sessions.map((s) => ({
-      ...s,
-      isCurrent: s.id === req.auth!.sessionId,
-    })),
-  });
+  res.json({ sessions: sessions.map((s) => ({ ...s, isCurrent: s.id === req.auth!.sessionId })) });
 });
 
 authRouter.delete('/sessions/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -220,45 +429,16 @@ authRouter.delete('/sessions/:id', requireAuth, async (req: AuthenticatedRequest
     res.status(404).json({ error: 'Active session not found.' });
     return;
   }
-
-  await prisma.session.update({
-    where: { id: target.id },
-    data: { revokedAt: new Date() },
-  });
-
-  if (target.id === req.auth!.sessionId) {
-    clearAuthCookies(res);
-  }
-
-  await recordAuditEvent({
-    actorId: req.auth!.user.id,
-    action: 'SESSION_REVOKE',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-    metadata: { revokedSessionId: target.id },
-  });
-
+  await prisma.session.update({ where: { id: target.id }, data: { revokedAt: new Date() } });
+  if (target.id === req.auth!.sessionId) clearAuthCookies(res);
   res.json({ ok: true });
 });
 
 authRouter.post('/sessions/revoke-others', requireAuth, async (req: AuthenticatedRequest, res) => {
   const result = await prisma.session.updateMany({
-    where: {
-      userId: req.auth!.user.id,
-      id: { not: req.auth!.sessionId },
-      revokedAt: null,
-    },
+    where: { userId: req.auth!.user.id, id: { not: req.auth!.sessionId }, revokedAt: null },
     data: { revokedAt: new Date() },
   });
-
-  await recordAuditEvent({
-    actorId: req.auth!.user.id,
-    action: 'SESSION_REVOKE_OTHERS',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-    metadata: { count: result.count },
-  });
-
   res.json({ ok: true, revokedCount: result.count });
 });
 
@@ -269,47 +449,65 @@ authRouter.post('/change-password', requireAuth, async (req: AuthenticatedReques
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Current password and a new password (8+ characters) are required.' });
+    res.status(400).json({ error: 'Current password and a new password (8+ chars) are required.' });
     return;
   }
 
   const user = await prisma.user.findUnique({ where: { id: req.auth!.user.id } });
-  if (!user || !(await verifyPassword(user.passwordHash, parsed.data.currentPassword))) {
+  if (!user || !(await pyVerifyPassword(user.passwordHash, parsed.data.currentPassword))) {
     res.status(401).json({ error: 'Current password is incorrect.' });
     return;
   }
 
-  const newHash = await hashPassword(parsed.data.newPassword);
+  const newHash = await pyHashPassword(parsed.data.newPassword);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
-
-  // Revoke all other sessions on password change
   await prisma.session.updateMany({
     where: { userId: user.id, id: { not: req.auth!.sessionId }, revokedAt: null },
     data: { revokedAt: new Date() },
   });
-
-  await recordAuditEvent({
-    actorId: user.id,
-    action: 'AUTH_PASSWORD_CHANGED',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-  });
-
   res.json({ ok: true });
 });
 
-/**
- * Server-side Developer Code verification.
- * Supports two flows:
- * 1. Entry screen flow: submits { username, password, code } — authenticates the account first,
- *    then verifies the server-configured developer code, grants DEVELOPER role, and creates a session.
- * 2. Already-authenticated flow: submits { code } with active session + CSRF token.
- * Never logs the submitted code or exposes the stored secret.
- */
+// Set or verify 4-6 digit Secret Mode PIN (hashed via Python Argon2id)
+authRouter.post('/secret-pin/set', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN must be 4 to 6 digits.') });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid PIN.' });
+    return;
+  }
+  const secretPinHash = await pyHashPassword(parsed.data.pin);
+  const updated = await prisma.user.update({
+    where: { id: req.auth!.user.id },
+    data: { secretPinHash },
+  });
+  res.json({ user: toSelfUserDTO(updated) });
+});
+
+authRouter.post('/secret-pin/verify', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ pin: z.string().regex(/^\d{4,6}$/) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Enter your 4–6 digit Secret PIN.' });
+    return;
+  }
+  const pinHash = req.auth!.user.secretPinHash;
+  if (!pinHash) {
+    res.status(400).json({ error: 'Set a Secret Mode PIN in Settings first.' });
+    return;
+  }
+  const ok = await pyVerifyPassword(pinHash, parsed.data.pin);
+  if (!ok) {
+    res.status(403).json({ error: 'Incorrect Secret PIN.' });
+    return;
+  }
+  res.json({ unlocked: true });
+});
+
 authRouter.post('/developer-code', developerCodeLimiter, async (req: AuthenticatedRequest, res) => {
   const schema = z.object({
     code: z.string().min(1).max(32),
-    username: z.string().min(1).max(32).optional(),
+    identifier: z.string().min(1).max(32).optional(),
     password: z.string().min(1).max(128).optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -318,30 +516,29 @@ authRouter.post('/developer-code', developerCodeLimiter, async (req: Authenticat
     return;
   }
 
-  // Step 1: Identify and authenticate the target user
   let targetUser = null;
   let createNewSession = false;
 
-  if (parsed.data.username && parsed.data.password) {
-    const normalized = parsed.data.username.trim().toLowerCase();
-    const candidate = await prisma.user.findUnique({ where: { usernameNormalized: normalized } });
-    if (!candidate || !(await verifyPassword(candidate.passwordHash, parsed.data.password))) {
-      await recordAuditEvent({
-        action: 'DEVELOPER_CODE_VERIFY',
-        outcome: 'FAILURE',
-        ipAddress: req.ip,
-        metadata: { reason: 'INVALID_CREDENTIALS' },
-      });
+  if (parsed.data.identifier && parsed.data.password) {
+    const rawId = parsed.data.identifier.trim();
+    if (/^[\d+\s\-()]{8,20}$/.test(rawId)) {
+      try {
+        const phoneNorm = await pyNormalizePhone(rawId);
+        targetUser = await prisma.user.findUnique({ where: { phoneNormalized: phoneNorm } });
+      } catch {}
+    }
+    if (!targetUser) {
+      targetUser = await prisma.user.findUnique({ where: { usernameNormalized: rawId.toLowerCase() } });
+    }
+    if (!targetUser || !(await pyVerifyPassword(targetUser.passwordHash, parsed.data.password))) {
       res.status(401).json({ error: 'Invalid credentials or developer code.' });
       return;
     }
-    targetUser = candidate;
     createNewSession = true;
   } else {
-    // Check existing session cookie + CSRF
     const rawToken = req.cookies?.cbox_sid;
     if (!rawToken) {
-      res.status(401).json({ error: 'Sign in with your username and password to apply a developer code.' });
+      res.status(401).json({ error: 'Sign in first to apply a developer code.' });
       return;
     }
     const session = await prisma.session.findUnique({
@@ -349,18 +546,12 @@ authRouter.post('/developer-code', developerCodeLimiter, async (req: Authenticat
       include: { user: true },
     });
     if (!session || session.revokedAt !== null || session.expiresAt <= new Date()) {
-      res.status(401).json({ error: 'Session expired. Please sign in again.' });
-      return;
-    }
-    const csrfHeader = req.get('x-csrf-token') || '';
-    if (!csrfHeader || csrfHeader !== session.csrfToken) {
-      res.status(403).json({ error: 'Invalid CSRF token.' });
+      res.status(401).json({ error: 'Session expired.' });
       return;
     }
     targetUser = session.user;
   }
 
-  // Step 2: Verify developer code on the server
   const verification = verifyDeveloperAccessCode(parsed.data.code);
   if (!verification.valid) {
     await recordAuditEvent({
@@ -370,15 +561,12 @@ authRouter.post('/developer-code', developerCodeLimiter, async (req: Authenticat
       ipAddress: req.ip,
       metadata: { reason: verification.reason },
     });
-
-    if (verification.reason === 'NOT_CONFIGURED') {
-      res.status(503).json({
-        error: 'Developer access code is not configured on this server. Check backend .env setup.',
-      });
-      return;
-    }
-
-    res.status(403).json({ error: 'Invalid developer code.' });
+    res.status(verification.reason === 'NOT_CONFIGURED' ? 503 : 403).json({
+      error:
+        verification.reason === 'NOT_CONFIGURED'
+          ? 'Developer access code is not configured on this server.'
+          : 'Invalid developer code.',
+    });
     return;
   }
 

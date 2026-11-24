@@ -20,6 +20,7 @@ const upload = multer({
 });
 
 const ALLOWED_REACTION_EMOJIS = new Set(['❤️', '😂', '🔥', '👍', '😮', '😢']);
+const ALLOWED_DISAPPEAR_SECONDS = new Set([0, 300, 3600, 86400]);
 
 const messageInclude = {
   replyTo: {
@@ -41,7 +42,6 @@ const messageInclude = {
 
 function serializeMessage(m: any) {
   const isDeleted = Boolean(m.deletedAt);
-  // Group reactions by emoji
   const grouped = new Map<string, string[]>();
   if (!isDeleted && Array.isArray(m.reactions)) {
     for (const r of m.reactions) {
@@ -74,6 +74,7 @@ function serializeMessage(m: any) {
       : null,
     reactions: Array.from(grouped.entries()).map(([emoji, userIds]) => ({ emoji, userIds })),
     deliveryState: m.deliveryState,
+    expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     deletedAt: m.deletedAt ? m.deletedAt.toISOString() : null,
     createdAt: m.createdAt.toISOString(),
@@ -117,7 +118,9 @@ chatRouter.post('/conversations/with/:friendId', async (req: AuthenticatedReques
     conversation: {
       id: conversation.id,
       friend: toPublicUserDTO(friend),
-      online: isUserOnline(friend.id),
+      online: friend.hideOnlineStatus ? false : isUserOnline(friend.id),
+      disappearAfterSeconds: conversation.disappearAfterSeconds,
+      hiddenInVault: conversation.userAId === viewerId ? conversation.hiddenByA : conversation.hiddenByB,
       lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
     },
   });
@@ -142,9 +145,13 @@ chatRouter.get('/conversations/:id/messages', async (req: AuthenticatedRequest, 
     return;
   }
 
+  const now = new Date();
   const limit = Math.min(Math.max(Number(req.query.limit || 80), 1), 150);
   const messages = await prisma.message.findMany({
-    where: { conversationId: conversation.id },
+    where: {
+      conversationId: conversation.id,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
     include: messageInclude,
     orderBy: { createdAt: 'asc' },
     take: limit,
@@ -154,19 +161,82 @@ chatRouter.get('/conversations/:id/messages', async (req: AuthenticatedRequest, 
     conversation: {
       id: conversation.id,
       friend: toPublicUserDTO(other),
-      online: isUserOnline(other.id),
+      online: other.hideOnlineStatus ? false : isUserOnline(other.id),
+      disappearAfterSeconds: conversation.disappearAfterSeconds,
+      hiddenInVault: conversation.userAId === viewerId ? conversation.hiddenByA : conversation.hiddenByB,
     },
     messages: messages.map(serializeMessage),
   });
 });
 
-// Mark incoming messages in conversation as READ + broadcast read receipt
+// Secret Mode: Move conversation into or out of user's PIN-protected Hidden Vault
+chatRouter.patch('/conversations/:id/vault', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ hidden: z.boolean() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid vault state.' });
+    return;
+  }
+
+  const viewerId = req.auth!.user.id;
+  if (parsed.data.hidden && !req.auth!.user.secretPinHash) {
+    res.status(400).json({ error: 'Set a Secret Mode PIN in Profile → Settings before hiding chats.' });
+    return;
+  }
+
+  const conv = await prisma.conversation.findUnique({ where: { id: req.params.id } });
+  if (!conv || (conv.userAId !== viewerId && conv.userBId !== viewerId)) {
+    res.status(403).json({ error: 'Access denied.' });
+    return;
+  }
+
+  const data = conv.userAId === viewerId ? { hiddenByA: parsed.data.hidden } : { hiddenByB: parsed.data.hidden };
+  await prisma.conversation.update({ where: { id: conv.id }, data });
+  res.json({ ok: true, hiddenInVault: parsed.data.hidden });
+});
+
+// Secret Mode: Configure disappearing messages timer (0 | 300 | 3600 | 86400 seconds)
+chatRouter.patch('/conversations/:id/disappear', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ seconds: z.number().int() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success || !ALLOWED_DISAPPEAR_SECONDS.has(parsed.data.seconds)) {
+    res.status(400).json({ error: 'Allowed timers: Off (0), 5 min (300), 1 hr (3600), 24 hr (86400).' });
+    return;
+  }
+
+  const viewerId = req.auth!.user.id;
+  const conv = await prisma.conversation.findUnique({ where: { id: req.params.id } });
+  if (!conv || (conv.userAId !== viewerId && conv.userBId !== viewerId)) {
+    res.status(403).json({ error: 'Access denied.' });
+    return;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conv.id },
+    data: { disappearAfterSeconds: parsed.data.seconds },
+  });
+
+  const otherId = conv.userAId === viewerId ? conv.userBId : conv.userAId;
+  emitToUser(otherId, 'conversation:disappear', {
+    conversationId: conv.id,
+    disappearAfterSeconds: parsed.data.seconds,
+  });
+
+  res.json({ ok: true, disappearAfterSeconds: parsed.data.seconds });
+});
+
+// Mark incoming messages as READ (respecting user's disableReadReceipts privacy setting)
 chatRouter.post('/conversations/:id/read', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const conversation = await prisma.conversation.findUnique({ where: { id: req.params.id } });
 
   if (!conversation || (conversation.userAId !== viewerId && conversation.userBId !== viewerId)) {
     res.status(403).json({ error: 'Access denied.' });
+    return;
+  }
+
+  if (req.auth!.user.disableReadReceipts) {
+    res.json({ ok: true, count: 0, suppressedByPrivacy: true });
     return;
   }
 
@@ -190,7 +260,6 @@ chatRouter.post('/conversations/:id/read', async (req: AuthenticatedRequest, res
   res.json({ ok: true, count: updated.count });
 });
 
-// Send text message (with optional replyToId)
 chatRouter.post('/conversations/:id/messages', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({
     content: z.string().trim().min(1, 'Message cannot be empty.').max(2000, 'Message is too long.'),
@@ -232,6 +301,10 @@ chatRouter.post('/conversations/:id/messages', async (req: AuthenticatedRequest,
   }
 
   const deliveryState = isUserOnline(recipientId) ? 'DELIVERED' : 'SENT';
+  const expiresAt =
+    conversation.disappearAfterSeconds > 0
+      ? new Date(Date.now() + conversation.disappearAfterSeconds * 1000)
+      : null;
 
   const [message] = await prisma.$transaction([
     prisma.message.create({
@@ -242,6 +315,7 @@ chatRouter.post('/conversations/:id/messages', async (req: AuthenticatedRequest,
         content: parsed.data.content,
         replyToId: validReplyId,
         deliveryState,
+        expiresAt,
       },
       include: messageInclude,
     }),
@@ -258,7 +332,6 @@ chatRouter.post('/conversations/:id/messages', async (req: AuthenticatedRequest,
   res.status(201).json({ message: dto });
 });
 
-// Send in-chat photo or voice note
 chatRouter.post(
   '/conversations/:id/media',
   uploadLimiter,
@@ -286,6 +359,10 @@ chatRouter.post(
     const isAudio = req.file.mimetype.startsWith('audio/');
     const caption = typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, 500) : '';
     const replyToId = typeof req.body.replyToId === 'string' && req.body.replyToId ? req.body.replyToId : null;
+    const expiresAt =
+      conversation.disappearAfterSeconds > 0
+        ? new Date(Date.now() + conversation.disappearAfterSeconds * 1000)
+        : null;
 
     try {
       const stored = isAudio
@@ -325,6 +402,7 @@ chatRouter.post(
             mediaKind: isAudio ? 'AUDIO' : 'IMAGE',
             replyToId,
             deliveryState,
+            expiresAt,
           },
           include: messageInclude,
         });
@@ -348,7 +426,6 @@ chatRouter.post(
   }
 );
 
-// Author-only edit message
 chatRouter.patch('/messages/:id', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({ content: z.string().trim().min(1).max(2000) });
   const parsed = schema.safeParse(req.body);
@@ -389,7 +466,6 @@ chatRouter.patch('/messages/:id', async (req: AuthenticatedRequest, res) => {
   res.json({ message: dto });
 });
 
-// Author-only soft delete message for everyone
 chatRouter.delete('/messages/:id', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const existing = await prisma.message.findUnique({
@@ -423,7 +499,6 @@ chatRouter.delete('/messages/:id', async (req: AuthenticatedRequest, res) => {
   res.json({ message: dto });
 });
 
-// Participant-only toggle emoji reaction on a message
 chatRouter.post('/messages/:id/reactions', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({ emoji: z.string().min(1).max(16) });
   const parsed = schema.safeParse(req.body);
@@ -461,11 +536,7 @@ chatRouter.post('/messages/:id/reactions', async (req: AuthenticatedRequest, res
     await prisma.messageReaction.delete({ where: { id: current.id } });
   } else {
     await prisma.messageReaction.create({
-      data: {
-        messageId: existing.id,
-        userId: viewerId,
-        emoji: parsed.data.emoji,
-      },
+      data: { messageId: existing.id, userId: viewerId, emoji: parsed.data.emoji },
     });
   }
 

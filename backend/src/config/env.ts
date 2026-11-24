@@ -17,7 +17,6 @@ export const env = {
   nodeEnv,
   isProd,
   port: Number(process.env.PORT || 4000),
-  // On Render, RENDER_EXTERNAL_URL is auto-injected; fallback to APP_ORIGIN or localhost
   appOrigin: process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173',
   serveFrontend: parseBool(process.env.SERVE_FRONTEND, isProd),
   trustProxy: parseBool(process.env.TRUST_PROXY, isProd),
@@ -25,6 +24,10 @@ export const env = {
   sessionTtlHours: Number(process.env.SESSION_TTL_HOURS || 168),
   cookieSecure: parseBool(process.env.COOKIE_SECURE, isProd),
   cookieDomain: process.env.COOKIE_DOMAIN || undefined,
+  pythonAuthUrl: (process.env.PYTHON_AUTH_URL || 'http://127.0.0.1:8001').replace(/\/$/, ''),
+  internalAuthKey: process.env.INTERNAL_AUTH_KEY || 'chatterbox-local-internal-key',
+  smsProvider: (process.env.SMS_PROVIDER || 'demo').toLowerCase(),
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
   developerAccessCode: process.env.DEVELOPER_ACCESS_CODE || '',
   developerCodeAllowDemo9Digit: parseBool(process.env.DEVELOPER_CODE_ALLOW_DEMO_9_DIGIT, false),
   allowBlockingDevelopers: parseBool(process.env.ALLOW_BLOCKING_DEVELOPERS, false),

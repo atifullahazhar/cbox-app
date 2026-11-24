@@ -9,6 +9,7 @@ export const RESERVED_USERNAMES = new Set([
   'system',
   'support',
   'cbox',
+  'chatterbox',
   'developer',
   'api',
   'login',
@@ -62,29 +63,25 @@ export function generateOpaqueToken(bytes = 32): string {
 }
 
 export function hashToken(rawToken: string): string {
-  return crypto
-    .createHmac('sha256', env.sessionSecret)
-    .update(rawToken)
-    .digest('hex');
+  return crypto.createHmac('sha256', env.sessionSecret).update(rawToken).digest('hex');
 }
 
 export function timingSafeEqualStr(a: string, b: string): boolean {
   const bufA = Buffer.from(a, 'utf8');
   const bufB = Buffer.from(b, 'utf8');
   if (bufA.length !== bufB.length) {
-    // Compare against dummy buffer to avoid early-exit timing leak
     crypto.timingSafeEqual(bufA, bufA);
     return false;
   }
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-/**
- * Verifies the server-configured developer access code using constant-time comparison.
- * - Production policy: requires a confirmed 12-digit numeric code in DEVELOPER_ACCESS_CODE.
- * - Demo policy: accepts a 9-digit configured value ONLY when DEVELOPER_CODE_ALLOW_DEMO_9_DIGIT=true.
- * - Never logs the submitted or configured code.
- */
+export function maskPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  if (phone.length <= 6) return '••••';
+  return `${phone.slice(0, 3)}••••${phone.slice(-4)}`;
+}
+
 export function verifyDeveloperAccessCode(submittedCode: string): {
   valid: boolean;
   reason?: 'NOT_CONFIGURED' | 'INVALID_FORMAT' | 'MISMATCH';
@@ -124,6 +121,10 @@ export interface SafeUserDTO {
   bio: string;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  phoneMasked?: string | null;
+  hasSecretPin?: boolean;
+  hideOnlineStatus?: boolean;
+  disableReadReceipts?: boolean;
   theme?: 'SYSTEM' | 'LIGHT' | 'DARK';
   role?: 'USER' | 'DEVELOPER';
   isDemo?: boolean;
@@ -158,6 +159,10 @@ export function toSelfUserDTO(user: {
   id: string;
   usernameDisplay: string;
   usernameNormalized: string;
+  phoneNormalized?: string | null;
+  secretPinHash?: string | null;
+  hideOnlineStatus?: boolean;
+  disableReadReceipts?: boolean;
   primaryNickname: string;
   alternateNicknames: string[];
   bio: string;
@@ -170,6 +175,10 @@ export function toSelfUserDTO(user: {
 }): SafeUserDTO {
   return {
     ...toPublicUserDTO(user),
+    phoneMasked: maskPhone(user.phoneNormalized),
+    hasSecretPin: Boolean(user.secretPinHash),
+    hideOnlineStatus: Boolean(user.hideOnlineStatus),
+    disableReadReceipts: Boolean(user.disableReadReceipts),
     theme: user.theme,
     role: user.role,
     createdAt: user.createdAt.toISOString(),

@@ -26,9 +26,8 @@ export const App: React.FC = () => {
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
   useThemeSync(user?.theme || 'SYSTEM');
 
-  // Update browser tab title with live unread + request count
   useEffect(() => {
-    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Cbox` : 'Cbox — Private Social Chat';
+    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox` : 'Chatterbox — Private Social Chat';
   }, [chatBadgeCount]);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -81,13 +80,13 @@ export const App: React.FC = () => {
     setUser(null);
     setChatBadgeCount(0);
     setActiveNav('profile');
-    notify('Signed out of Cbox.', 'info');
+    notify('Signed out of Chatterbox.', 'info');
   }
 
   async function handleNativeInstall() {
     const accepted = await triggerInstall();
     if (accepted) {
-      notify('Cbox installed on your device!', 'success');
+      notify('Chatterbox installed on your device!', 'success');
     }
   }
 

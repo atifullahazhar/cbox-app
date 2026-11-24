@@ -16,6 +16,10 @@ export interface AuthenticatedRequest extends Request {
       id: string;
       usernameDisplay: string;
       usernameNormalized: string;
+      phoneNormalized: string | null;
+      secretPinHash: string | null;
+      hideOnlineStatus: boolean;
+      disableReadReceipts: boolean;
       primaryNickname: string;
       alternateNicknames: string[];
       bio: string;
@@ -38,16 +42,8 @@ export function setAuthCookies(res: Response, rawSessionToken: string, csrfToken
     path: '/',
   };
 
-  res.cookie(SESSION_COOKIE_NAME, rawSessionToken, {
-    ...baseOpts,
-    httpOnly: true,
-  });
-
-  // Readable by frontend JS to echo back in X-CSRF-Token header (double-submit CSRF defense)
-  res.cookie(CSRF_COOKIE_NAME, csrfToken, {
-    ...baseOpts,
-    httpOnly: false,
-  });
+  res.cookie(SESSION_COOKIE_NAME, rawSessionToken, { ...baseOpts, httpOnly: true });
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, { ...baseOpts, httpOnly: false });
 }
 
 export function clearAuthCookies(res: Response): void {
@@ -80,7 +76,6 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     return;
   }
 
-  // Enforce CSRF token header on state-changing requests
   const method = req.method.toUpperCase();
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     const headerToken = req.get('x-csrf-token') || '';
@@ -96,7 +91,6 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     user: session.user,
   };
 
-  // Opportunistic activity update (throttled to every 5 minutes)
   if (Date.now() - session.lastActiveAt.getTime() > 5 * 60 * 1000) {
     prisma.session
       .update({ where: { id: session.id }, data: { lastActiveAt: new Date() } })

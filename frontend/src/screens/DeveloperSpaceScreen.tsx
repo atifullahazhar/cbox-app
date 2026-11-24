@@ -1,27 +1,43 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Lock, Activity, Terminal } from 'lucide-react';
-import type { DeveloperStatusResponse } from '../types';
+import { ShieldCheck, Lock, Activity, Terminal, Flag, CheckCircle2, XCircle } from 'lucide-react';
+import type { DeveloperStatusResponse, SafetyReportItem } from '../types';
 import { apiFetch } from '../lib/api';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 
 export const DeveloperSpaceScreen: React.FC = () => {
   const [data, setData] = useState<DeveloperStatusResponse | null>(null);
+  const [reports, setReports] = useState<SafetyReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    apiFetch<DeveloperStatusResponse>('/api/developer/status')
-      .then((res) => setData(res))
+    Promise.all([
+      apiFetch<DeveloperStatusResponse>('/api/developer/status'),
+      apiFetch<{ reports: SafetyReportItem[] }>('/api/reports/queue').catch(() => ({ reports: [] })),
+    ])
+      .then(([statusRes, repRes]) => {
+        setData(statusRes);
+        setReports(repRes.reports);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Access denied.'))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <LoadingSkeleton variant="card" rows={2} />;
+  async function updateReportStatus(id: string, status: 'REVIEWED' | 'DISMISSED') {
+    try {
+      await apiFetch(`/api/reports/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+    } catch {
+      // Ignore
+    }
   }
 
+  if (loading) return <LoadingSkeleton variant="card" rows={2} />;
   if (error || !data) {
     return (
       <EmptyState
@@ -41,7 +57,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
               <Terminal className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-cbox-text">Developer Space</h1>
+              <h1 className="text-xl font-bold text-cbox-text">Chatterbox Developer Space</h1>
               <p className="text-xs text-cbox-muted">
                 Server-verified workspace for @{data.account.username}
               </p>
@@ -56,7 +72,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
 
         <p className="text-xs text-cbox-muted leading-relaxed">
           Privacy boundary enforced: Developer Space is strictly audited and never grants access to
-          private one-to-one messages or friends-only posts belonging to other users.
+          private one-to-one messages or friends-only posts.
         </p>
 
         <div className="grid sm:grid-cols-3 gap-3 pt-2 text-xs">
@@ -67,49 +83,69 @@ export const DeveloperSpaceScreen: React.FC = () => {
           <div className="p-3 rounded-xl bg-cbox-elevated border border-cbox-border">
             <span className="text-cbox-muted block">Allow Blocking Developers</span>
             <strong className="text-cbox-text mt-0.5 block">
-              {data.policies.allowBlockingDevelopers ? 'Enabled (Prod Recommended)' : 'Disabled (Prototype Flag)'}
+              {data.policies.allowBlockingDevelopers ? 'Enabled (Prod)' : 'Disabled (Prototype)'}
             </strong>
           </div>
           <div className="p-3 rounded-xl bg-cbox-elevated border border-cbox-border">
-            <span className="text-cbox-muted block">Media Storage Driver</span>
-            <strong className="text-cbox-text mt-0.5 block uppercase">
-              {data.policies.storageDriver}
-            </strong>
+            <span className="text-cbox-muted block">Auth Security Engine</span>
+            <strong className="text-cbox-text mt-0.5 block">Python Argon2id + OTP</strong>
           </div>
         </div>
       </div>
 
-      {/* Modular Placeholder Cards for Future Settings */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted">
-          Upcoming Developer Modules
+      {/* Live Audited Safety Reports Queue */}
+      <section className="rounded-2xl border border-cbox-border bg-cbox-surface p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-cbox-text flex items-center gap-2">
+          <Flag className="h-4 w-4 text-cbox-danger" />
+          Safety Reports Moderation Queue ({reports.filter((r) => r.status === 'OPEN').length} open)
         </h2>
-        <div className="grid sm:grid-cols-2 gap-4">
-          {data.upcomingModules.map((mod) => (
-            <div
-              key={mod.id}
-              className="p-5 rounded-2xl border border-cbox-border bg-cbox-surface/80 flex flex-col justify-between gap-4 opacity-85"
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-cbox-text">{mod.title}</h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cbox-violet/15 text-cbox-violet">
-                    Coming soon
-                  </span>
-                </div>
-                <p className="mt-1.5 text-xs text-cbox-muted leading-relaxed">{mod.description}</p>
-              </div>
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                className="self-start px-3 py-1.5 rounded-lg text-xs font-medium border border-cbox-border text-cbox-muted cursor-not-allowed opacity-60"
+
+        {reports.length === 0 ? (
+          <p className="text-xs text-cbox-muted">No user or post safety reports submitted yet.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {reports.map((r) => (
+              <div
+                key={r.id}
+                className="p-3.5 rounded-xl border border-cbox-border bg-cbox-elevated/40 flex flex-wrap items-center justify-between gap-3 text-xs"
               >
-                Locked until specified
-              </button>
-            </div>
-          ))}
-        </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-cbox-text">{r.reason}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cbox-surface border border-cbox-border">
+                      {r.status}
+                    </span>
+                  </div>
+                  <p className="text-cbox-muted">
+                    Reported by @{r.reporter.username}
+                    {r.targetUser ? ` · Target: @${r.targetUser.username}` : ''}
+                    {r.targetPostId ? ` · Post ID: ${r.targetPostId.slice(0, 8)}…` : ''}
+                  </p>
+                  {r.details && <p className="text-cbox-text/90">{r.details}</p>}
+                </div>
+
+                {r.status === 'OPEN' && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => updateReportStatus(r.id, 'REVIEWED')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cbox-success/15 text-cbox-success font-semibold"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Reviewed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateReportStatus(r.id, 'DISMISSED')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-cbox-border text-cbox-muted"
+                    >
+                      <XCircle className="h-3.5 w-3.5" /> Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Non-sensitive Audit Log */}

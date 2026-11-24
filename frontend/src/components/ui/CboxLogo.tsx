@@ -34,7 +34,7 @@ export const CboxLogo: React.FC<CboxLogoProps> = ({ size = 34, showWordmark = tr
     </svg>
     {showWordmark && (
       <span className="text-xl font-bold tracking-tight text-cbox-text">
-        Cbox
+        Chatterbox
       </span>
     )}
   </div>

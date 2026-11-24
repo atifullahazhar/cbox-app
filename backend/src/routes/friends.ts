@@ -12,7 +12,6 @@ import { recordAuditEvent } from '../services/audit.js';
 export const friendsRouter = Router();
 friendsRouter.use(requireAuth);
 
-// A. General — Accepted friends only, with real presence + unread count
 friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
   const userId = req.auth!.user.id;
   const blockedIds = await getBlockedUserIds(userId);
@@ -33,6 +32,7 @@ friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
       where: { userAId_userBId: { userAId: cA, userBId: cB } },
       include: {
         messages: {
+          where: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -50,11 +50,19 @@ friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
         })
       : 0;
 
+    const hiddenInVault = conv
+      ? conv.userAId === userId
+        ? conv.hiddenByA
+        : conv.hiddenByB
+      : false;
+
     const lastMsg = conv?.messages[0];
     friends.push({
       friend: toPublicUserDTO(other),
-      online: isUserOnline(other.id),
+      online: other.hideOnlineStatus ? false : isUserOnline(other.id),
       conversationId: conv?.id ?? null,
+      hiddenInVault,
+      disappearAfterSeconds: conv?.disappearAfterSeconds ?? 0,
       unreadCount,
       lastMessage: lastMsg
         ? {
@@ -86,7 +94,7 @@ friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const target = await prisma.user.findUnique({ where: { usernameNormalized: raw } });
   if (!target) {
-    res.status(404).json({ error: 'No Cbox user found with that exact username.' });
+    res.status(404).json({ error: 'No Chatterbox user found with that exact username.' });
     return;
   }
 
@@ -97,7 +105,7 @@ friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
 
   const blockState = await getBlockState(viewerId, target.id);
   if (blockState.blockedByOther) {
-    res.status(404).json({ error: 'No Cbox user found with that exact username.' });
+    res.status(404).json({ error: 'No Chatterbox user found with that exact username.' });
     return;
   }
 
@@ -260,10 +268,7 @@ friendsRouter.post('/requests/:id/accept', async (req: AuthenticatedRequest, res
   const [userAId, userBId] = canonicalPair(request.senderId, request.receiverId);
 
   const [, , conversation] = await prisma.$transaction([
-    prisma.friendRequest.update({
-      where: { id: request.id },
-      data: { status: FriendRequestStatus.ACCEPTED },
-    }),
+    prisma.friendRequest.update({ where: { id: request.id }, data: { status: FriendRequestStatus.ACCEPTED } }),
     prisma.friendship.upsert({
       where: { userAId_userBId: { userAId, userBId } },
       update: {},
@@ -282,11 +287,7 @@ friendsRouter.post('/requests/:id/accept', async (req: AuthenticatedRequest, res
     conversationId: conversation.id,
   });
 
-  res.json({
-    ok: true,
-    friend: toPublicUserDTO(request.sender),
-    conversationId: conversation.id,
-  });
+  res.json({ ok: true, friend: toPublicUserDTO(request.sender), conversationId: conversation.id });
 });
 
 friendsRouter.post('/requests/:id/deny', async (req: AuthenticatedRequest, res) => {
@@ -298,16 +299,8 @@ friendsRouter.post('/requests/:id/deny', async (req: AuthenticatedRequest, res) 
     return;
   }
 
-  await prisma.friendRequest.update({
-    where: { id: request.id },
-    data: { status: FriendRequestStatus.DENIED },
-  });
-
-  emitToUser(request.senderId, 'friend:request:updated', {
-    requestId: request.id,
-    status: FriendRequestStatus.DENIED,
-  });
-
+  await prisma.friendRequest.update({ where: { id: request.id }, data: { status: FriendRequestStatus.DENIED } });
+  emitToUser(request.senderId, 'friend:request:updated', { requestId: request.id, status: FriendRequestStatus.DENIED });
   res.json({ ok: true });
 });
 
@@ -320,11 +313,7 @@ friendsRouter.delete('/requests/:id', async (req: AuthenticatedRequest, res) => 
     return;
   }
 
-  await prisma.friendRequest.update({
-    where: { id: request.id },
-    data: { status: FriendRequestStatus.CANCELED },
-  });
-
+  await prisma.friendRequest.update({ where: { id: request.id }, data: { status: FriendRequestStatus.CANCELED } });
   emitToUser(request.receiverId, 'friend:request:canceled', { requestId: request.id });
   res.json({ ok: true });
 });
@@ -342,9 +331,7 @@ friendsRouter.get('/blocks', async (req: AuthenticatedRequest, res) => {
       blockedAt: b.createdAt.toISOString(),
       user: toPublicUserDTO(b.blocked),
     })),
-    policy: {
-      allowBlockingDevelopers: env.allowBlockingDevelopers,
-    },
+    policy: { allowBlockingDevelopers: env.allowBlockingDevelopers },
   });
 });
 
@@ -378,20 +365,13 @@ friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
       ipAddress: req.ip,
       metadata: { targetId: target.id },
     });
-    res.status(403).json({
-      error: 'This prototype server is configured to prevent blocking developer accounts.',
-    });
+    res.status(403).json({ error: 'This prototype server is configured to prevent blocking developer accounts.' });
     return;
   }
 
   const [userAId, userBId] = canonicalPair(blockerId, blockedId);
-
   await prisma.$transaction([
-    prisma.block.upsert({
-      where: { blockerId_blockedId: { blockerId, blockedId } },
-      update: {},
-      create: { blockerId, blockedId },
-    }),
+    prisma.block.upsert({ where: { blockerId_blockedId: { blockerId, blockedId } }, update: {}, create: { blockerId, blockedId } }),
     prisma.friendship.deleteMany({ where: { userAId, userBId } }),
     prisma.friendRequest.updateMany({
       where: {
@@ -405,30 +385,14 @@ friendsRouter.post('/blocks', async (req: AuthenticatedRequest, res) => {
     }),
   ]);
 
-  await recordAuditEvent({
-    actorId: blockerId,
-    action: 'USER_BLOCKED',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-    metadata: { blockedId },
-  });
-
+  await recordAuditEvent({ actorId: blockerId, action: 'USER_BLOCKED', outcome: 'SUCCESS', ipAddress: req.ip, metadata: { blockedId } });
   res.status(201).json({ ok: true });
 });
 
 friendsRouter.delete('/blocks/:blockedId', async (req: AuthenticatedRequest, res) => {
   const blockerId = req.auth!.user.id;
   const blockedId = req.params.blockedId;
-
   await prisma.block.deleteMany({ where: { blockerId, blockedId } });
-
-  await recordAuditEvent({
-    actorId: blockerId,
-    action: 'USER_UNBLOCKED',
-    outcome: 'SUCCESS',
-    ipAddress: req.ip,
-    metadata: { blockedId },
-  });
-
+  await recordAuditEvent({ actorId: blockerId, action: 'USER_UNBLOCKED', outcome: 'SUCCESS', ipAddress: req.ip, metadata: { blockedId } });
   res.json({ ok: true });
 });

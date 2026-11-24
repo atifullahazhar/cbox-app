@@ -45,45 +45,79 @@ enum MessageDeliveryState {
   READ
 }
 
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+  RESET_PASSWORD
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
+}
+
 model User {
   id                  String          @id @default(cuid())
   usernameNormalized  String          @unique @db.VarChar(24)
   usernameDisplay     String          @db.VarChar(24)
+  phoneNormalized     String?         @unique @db.VarChar(20)
+  phoneVerifiedAt     DateTime?
   passwordHash        String
+  secretPinHash       String?
   primaryNickname     String          @db.VarChar(48)
   alternateNicknames  String[]        @default([])
   bio                 String          @default("") @db.VarChar(280)
   avatarMediaId       String?
   bannerMediaId       String?
   theme               ThemePreference @default(SYSTEM)
+  hideOnlineStatus    Boolean         @default(false)
+  disableReadReceipts Boolean         @default(false)
   role                UserRole        @default(USER)
   isDemo              Boolean         @default(false)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
-  avatarMedia         MediaAsset?       @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerMedia         MediaAsset?       @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  avatarMedia         MediaAsset?        @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerMedia         MediaAsset?        @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
 
   sessions            Session[]
-  uploadedMedia       MediaAsset[]      @relation("UploadedMedia")
-  sentRequests        FriendRequest[]   @relation("SentFriendRequests")
-  receivedRequests    FriendRequest[]   @relation("ReceivedFriendRequests")
-  friendshipsA        Friendship[]      @relation("FriendshipUserA")
-  friendshipsB        Friendship[]      @relation("FriendshipUserB")
-  blocksInitiated     Block[]           @relation("BlocksInitiated")
-  blocksReceived      Block[]           @relation("BlocksReceived")
-  conversationsA      Conversation[]    @relation("ConversationUserA")
-  conversationsB      Conversation[]    @relation("ConversationUserB")
-  messagesSent        Message[]         @relation("MessagesSent")
-  messageReactions    MessageReaction[] @relation("UserMessageReactions")
-  posts               Post[]            @relation("UserPosts")
-  postLikes           PostLike[]        @relation("UserPostLikes")
-  postComments        PostComment[]     @relation("UserPostComments")
-  stories             Story[]           @relation("UserStories")
-  storyViews          StoryView[]       @relation("UserStoryViews")
-  auditEvents         AuditEvent[]      @relation("UserAuditEvents")
+  uploadedMedia       MediaAsset[]       @relation("UploadedMedia")
+  sentRequests        FriendRequest[]    @relation("SentFriendRequests")
+  receivedRequests    FriendRequest[]    @relation("ReceivedFriendRequests")
+  friendshipsA        Friendship[]       @relation("FriendshipUserA")
+  friendshipsB        Friendship[]       @relation("FriendshipUserB")
+  blocksInitiated     Block[]            @relation("BlocksInitiated")
+  blocksReceived      Block[]            @relation("BlocksReceived")
+  conversationsA      Conversation[]     @relation("ConversationUserA")
+  conversationsB      Conversation[]     @relation("ConversationUserB")
+  messagesSent        Message[]          @relation("MessagesSent")
+  messageReactions    MessageReaction[]  @relation("UserMessageReactions")
+  posts               Post[]             @relation("UserPosts")
+  postLikes           PostLike[]         @relation("UserPostLikes")
+  postComments        PostComment[]      @relation("UserPostComments")
+  stories             Story[]            @relation("UserStories")
+  storyViews          StoryView[]        @relation("UserStoryViews")
+  reportsFiled        SafetyReport[]     @relation("ReportsFiled")
+  reportsReceived     SafetyReport[]     @relation("ReportsReceived")
+  pushSubscriptions   PushSubscription[] @relation("UserPushSubscriptions")
+  auditEvents         AuditEvent[]       @relation("UserAuditEvents")
 
   @@index([usernameNormalized])
+  @@index([phoneNormalized])
+}
+
+model OtpChallenge {
+  id              String     @id @default(cuid())
+  phoneNormalized String     @db.VarChar(20)
+  purpose         OtpPurpose
+  codeHash        String
+  attempts        Int        @default(0)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime   @default(now())
+
+  @@index([phoneNormalized, purpose, createdAt])
 }
 
 model Session {
@@ -170,16 +204,19 @@ model Block {
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
-  userAId       String
-  userBId       String
-  lastMessageAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  userAId               String
+  userBId               String
+  hiddenByA             Boolean   @default(false)
+  hiddenByB             Boolean   @default(false)
+  disappearAfterSeconds Int       @default(0) // 0 = off, 300 = 5m, 3600 = 1h, 86400 = 24h
+  lastMessageAt         DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  userA         User      @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
-  userB         User      @relation("ConversationUserB", fields: [userBId], references: [id], onDelete: Cascade)
-  messages      Message[]
+  userA                 User      @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB                 User      @relation("ConversationUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages              Message[]
 
   @@unique([userAId, userBId])
   @@index([userAId, lastMessageAt])
@@ -193,9 +230,10 @@ model Message {
   clientTempId   String?              @db.VarChar(64)
   content        String               @db.VarChar(2000)
   mediaId        String?              @unique
-  mediaKind      String?              @db.VarChar(16) // IMAGE | AUDIO
+  mediaKind      String?              @db.VarChar(16)
   replyToId      String?
   deliveryState  MessageDeliveryState @default(SENT)
+  expiresAt      DateTime?
   editedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime             @default(now())
@@ -209,6 +247,7 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+  @@index([expiresAt])
 }
 
 model MessageReaction {
@@ -226,19 +265,20 @@ model MessageReaction {
 }
 
 model Post {
-  id           String        @id @default(cuid())
+  id           String         @id @default(cuid())
   authorId     String
-  mediaId      String        @unique
-  caption      String        @default("") @db.VarChar(1000)
-  audience     PostAudience  @default(FRIENDS_ONLY)
+  mediaId      String         @unique
+  caption      String         @default("") @db.VarChar(1000)
+  audience     PostAudience   @default(FRIENDS_ONLY)
   deletedAt    DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-  author       User          @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
-  media        MediaAsset    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  author       User           @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  media        MediaAsset     @relation(fields: [mediaId], references: [id], onDelete: Cascade)
   likes        PostLike[]
   comments     PostComment[]
+  reports      SafetyReport[] @relation("PostReports")
 
   @@index([authorId, deletedAt, createdAt])
   @@index([audience, deletedAt, createdAt])
@@ -301,6 +341,36 @@ model StoryView {
 
   @@unique([storyId, viewerId])
   @@index([storyId])
+}
+
+model SafetyReport {
+  id           String       @id @default(cuid())
+  reporterId   String
+  targetUserId String?
+  targetPostId String?
+  reason       String       @db.VarChar(80)
+  details      String       @default("") @db.VarChar(500)
+  status       ReportStatus @default(OPEN)
+  createdAt    DateTime     @default(now())
+
+  reporter     User         @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser   User?        @relation("ReportsReceived", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetPost   Post?        @relation("PostReports", fields: [targetPostId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user      User     @relation("UserPushSubscriptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AuditEvent {

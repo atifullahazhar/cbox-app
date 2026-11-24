@@ -11,6 +11,9 @@ import {
   X,
   UserX,
   KeyRound,
+  EyeOff,
+  Bell,
+  Phone,
 } from 'lucide-react';
 import type { BlockedUserItem, SafeUser, SessionInfo, ThemePreference } from '../../types';
 import { apiFetch } from '../../lib/api';
@@ -48,7 +51,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [newAlias, setNewAlias] = useState('');
   const [bio, setBio] = useState(user.bio);
   const [theme, setTheme] = useState<ThemePreference>(user.theme || 'SYSTEM');
+  const [hideOnlineStatus, setHideOnlineStatus] = useState(Boolean(user.hideOnlineStatus));
+  const [disableReadReceipts, setDisableReadReceipts] = useState(Boolean(user.disableReadReceipts));
   const [saving, setSaving] = useState(false);
+
+  // Secret Mode PIN
+  const [secretPin, setSecretPin] = useState('');
+  const [savingPin, setSavingPin] = useState(false);
+
+  // Push notifications status
+  const [pushConfigured, setPushConfigured] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<BlockedUserItem[]>([]);
@@ -63,14 +76,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setAlternateNicknames(user.alternateNicknames);
     setBio(user.bio);
     setTheme(user.theme || 'SYSTEM');
+    setHideOnlineStatus(Boolean(user.hideOnlineStatus));
+    setDisableReadReceipts(Boolean(user.disableReadReceipts));
 
     Promise.all([
       apiFetch<{ sessions: SessionInfo[] }>('/api/auth/sessions'),
       apiFetch<{ blockedUsers: BlockedUserItem[] }>('/api/friends/blocks'),
+      apiFetch<{ configured: boolean }>('/api/push/config').catch(() => ({ configured: false })),
     ])
-      .then(([sRes, bRes]) => {
+      .then(([sRes, bRes, pRes]) => {
         setSessions(sRes.sessions);
         setBlockedUsers(bRes.blockedUsers);
+        setPushConfigured(pRes.configured);
       })
       .catch(() => {});
   }, [open, user]);
@@ -100,6 +117,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           alternateNicknames,
           bio,
           theme,
+          hideOnlineStatus,
+          disableReadReceipts,
         }),
       });
       onUserUpdated(res.profile);
@@ -109,6 +128,62 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handlePrivacyToggle(field: 'hideOnlineStatus' | 'disableReadReceipts', val: boolean) {
+    if (field === 'hideOnlineStatus') setHideOnlineStatus(val);
+    else setDisableReadReceipts(val);
+    try {
+      const res = await apiFetch<{ profile: SafeUser }>('/api/profile/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: val }),
+      });
+      onUserUpdated(res.profile);
+      onNotify('Privacy setting updated.', 'success');
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to update privacy.', 'error');
+    }
+  }
+
+  async function handleSaveSecretPin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^\d{4,6}$/.test(secretPin)) {
+      onNotify('Secret PIN must be 4 to 6 digits.', 'error');
+      return;
+    }
+    setSavingPin(true);
+    try {
+      const res = await apiFetch<{ user: SafeUser }>('/api/auth/secret-pin/set', {
+        method: 'POST',
+        body: JSON.stringify({ pin: secretPin }),
+      });
+      onUserUpdated(res.user);
+      setSecretPin('');
+      onNotify('Secret Mode PIN saved! You can now hide chats in your Secret Vault.', 'success');
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to save Secret PIN.', 'error');
+    } finally {
+      setSavingPin(false);
+    }
+  }
+
+  async function handleEnablePush() {
+    if (!('Notification' in window)) {
+      onNotify('Push notifications are not supported in this browser.', 'info');
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      onNotify('Notification permission denied.', 'error');
+      return;
+    }
+    setPushEnabled(true);
+    onNotify(
+      pushConfigured
+        ? 'Push notifications enabled for this device.'
+        : 'Browser notifications allowed. Add VAPID keys on Render for background push.',
+      'success'
+    );
   }
 
   async function handleThemeSelect(next: ThemePreference) {
@@ -180,16 +255,23 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title="Settings"
-      description="Manage your profile identity, appearance, security, and privacy."
+      title="Chatterbox Settings"
+      description="Manage your profile identity, Secret Mode, privacy, and security."
       maxWidthClass="max-w-2xl"
     >
       <div className="space-y-8">
         {/* Profile Identity Form */}
         <form onSubmit={handleSaveProfile} className="space-y-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted">
-            Profile Identity
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted">
+              Profile Identity
+            </h3>
+            {user.phoneMasked && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-cbox-accent font-medium">
+                <Phone className="h-3.5 w-3.5" /> Verified {user.phoneMasked}
+              </span>
+            )}
+          </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="block space-y-1.5">
@@ -201,9 +283,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 required
                 className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
               />
-              <span className="text-[11px] text-cbox-muted block">
-                Globally unique identifier (3–24 chars, case-insensitive).
-              </span>
             </label>
 
             <label className="block space-y-1.5">
@@ -216,16 +295,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 maxLength={48}
                 className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
               />
-              <span className="text-[11px] text-cbox-muted block">
-                Display name only — does not replace your @username.
-              </span>
             </label>
           </div>
 
           <div className="space-y-1.5">
-            <span className="text-xs font-medium text-cbox-muted">
-              Alternate Nicknames / Aliases (optional)
-            </span>
+            <span className="text-xs font-medium text-cbox-muted">Alternate Nicknames</span>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -253,10 +327,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     {alias}
                     <button
                       type="button"
-                      aria-label={`Remove ${alias}`}
-                      onClick={() =>
-                        setAlternateNicknames((prev) => prev.filter((a) => a !== alias))
-                      }
+                      onClick={() => setAlternateNicknames((prev) => prev.filter((a) => a !== alias))}
                       className="text-cbox-muted hover:text-cbox-danger"
                     >
                       <X className="h-3 w-3" />
@@ -274,7 +345,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               maxLength={280}
-              placeholder="Tell friends a bit about yourself…"
               className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
             />
           </label>
@@ -325,6 +395,97 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
         </form>
 
+        {/* Secret Mode (LIVE!) */}
+        <section className="p-4 rounded-2xl border border-cbox-violet/35 bg-cbox-violet/5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-cbox-violet/15 text-cbox-violet flex items-center justify-center">
+                <Lock className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-cbox-text">Secret Mode Vault</h3>
+                <p className="text-xs text-cbox-muted">
+                  {user.hasSecretPin
+                    ? 'PIN active — hide chats from General and set disappearing timers.'
+                    : 'Set a 4–6 digit PIN to lock private chats in your Secret Vault.'}
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cbox-success/15 text-cbox-success">
+              {user.hasSecretPin ? 'Active' : 'Setup'}
+            </span>
+          </div>
+
+          <form onSubmit={handleSaveSecretPin} className="flex gap-2">
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={secretPin}
+              onChange={(e) => setSecretPin(e.target.value.replace(/\D/g, ''))}
+              placeholder={user.hasSecretPin ? 'Enter new 4–6 digit PIN' : 'Create 4–6 digit PIN'}
+              className="flex-1 rounded-xl bg-cbox-surface border border-cbox-border px-3.5 py-2 text-sm text-cbox-text tracking-widest"
+            />
+            <button
+              type="submit"
+              disabled={savingPin || secretPin.length < 4}
+              className="px-4 py-2 rounded-xl bg-cbox-violet text-white text-xs font-semibold disabled:opacity-40"
+            >
+              {savingPin ? 'Saving…' : user.hasSecretPin ? 'Update PIN' : 'Enable Secret Mode'}
+            </button>
+          </form>
+        </section>
+
+        {/* Privacy & Notifications */}
+        <section className="space-y-3 pt-4 border-t border-cbox-border">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted flex items-center gap-2">
+            <EyeOff className="h-4 w-4" /> Privacy & Notifications
+          </h3>
+
+          <label className="flex items-center justify-between gap-3 p-3 rounded-xl border border-cbox-border bg-cbox-elevated/40 cursor-pointer">
+            <div>
+              <p className="text-sm font-medium text-cbox-text">Hide Online Status</p>
+              <p className="text-xs text-cbox-muted">Friends will see you as Offline even when active.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={hideOnlineStatus}
+              onChange={(e) => handlePrivacyToggle('hideOnlineStatus', e.target.checked)}
+              className="h-5 w-5 accent-cbox-accent"
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-3 p-3 rounded-xl border border-cbox-border bg-cbox-elevated/40 cursor-pointer">
+            <div>
+              <p className="text-sm font-medium text-cbox-text">Disable Read Receipts</p>
+              <p className="text-xs text-cbox-muted">Stop sending blue seen ticks when you read messages.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={disableReadReceipts}
+              onChange={(e) => handlePrivacyToggle('disableReadReceipts', e.target.checked)}
+              className="h-5 w-5 accent-cbox-accent"
+            />
+          </label>
+
+          <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-cbox-border bg-cbox-elevated/40">
+            <div className="flex items-center gap-2.5">
+              <Bell className="h-4 w-4 text-cbox-accent shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-cbox-text">Push Notifications</p>
+                <p className="text-xs text-cbox-muted">Get notified about new messages & friend requests.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleEnablePush}
+              className="px-3 py-1.5 rounded-xl border border-cbox-accent text-cbox-accent text-xs font-semibold hover:bg-cbox-accent/10"
+            >
+              {pushEnabled ? 'Enabled' : 'Enable'}
+            </button>
+          </div>
+        </section>
+
         {/* Appearance / Theme */}
         <section className="space-y-3 pt-4 border-t border-cbox-border">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted">
@@ -353,34 +514,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </button>
             ))}
           </div>
-        </section>
-
-        {/* Secret Mode Placeholder */}
-        <section className="p-4 rounded-xl border border-cbox-border bg-cbox-elevated/60 flex items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="h-9 w-9 rounded-xl bg-cbox-violet/15 text-cbox-violet flex items-center justify-center shrink-0">
-              <Lock className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-semibold text-cbox-text">Secret Mode</h4>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cbox-violet/15 text-cbox-violet">
-                  Coming soon
-                </span>
-              </div>
-              <p className="text-xs text-cbox-muted mt-0.5">
-                Reserved for a future privacy mode. Currently disabled until specified.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border border-cbox-border text-cbox-muted opacity-50 cursor-not-allowed shrink-0"
-          >
-            Unavailable
-          </button>
         </section>
 
         {/* Blocked Users */}
@@ -419,7 +552,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           )}
         </section>
 
-        {/* Account Security & Active Sessions */}
+        {/* Account Security & Sessions */}
         <section className="space-y-4 pt-4 border-t border-cbox-border">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted flex items-center gap-2">
             <Shield className="h-4 w-4" /> Account Security
@@ -452,12 +585,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               {changingPassword ? 'Updating…' : 'Update password'}
             </button>
           </form>
-
-          <p className="text-xs text-cbox-muted bg-cbox-elevated/60 border border-cbox-border rounded-xl p-3">
-            <strong>Password recovery note:</strong> Because Cbox accounts currently use username +
-            password without a verified email or phone number, self-service password reset is not
-            available yet. Optional recovery contact setup is planned as a future security upgrade.
-          </p>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -502,7 +629,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
         </section>
 
-        {/* Logout */}
         <div className="pt-4 border-t border-cbox-border flex justify-end">
           <button
             type="button"
