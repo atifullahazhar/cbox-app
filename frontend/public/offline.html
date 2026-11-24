@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cbox — Offline</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0b1120;
+        color: #f1f5f9;
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 24px;
+      }
+      .card {
+        max-width: 380px;
+        text-align: center;
+        background: #111a2e;
+        border: 1px solid #1e293b;
+        border-radius: 16px;
+        padding: 32px 24px;
+      }
+      h1 { margin: 0 0 8px; font-size: 1.25rem; }
+      p { margin: 0 0 20px; color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }
+      button {
+        background: #0ea5e9;
+        color: #031525;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 18px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>You are offline</h1>
+      <p>Cbox needs an internet connection to sync messages, friend requests, and posts. Reconnect and try again.</p>
+      <button onclick="window.location.reload()">Retry connection</button>
+    </div>
+  </body>
+</html>

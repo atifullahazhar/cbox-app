@@ -1,0 +1,109 @@
+export type UserRole = 'USER' | 'DEVELOPER';
+export type ThemePreference = 'SYSTEM' | 'LIGHT' | 'DARK';
+export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC';
+export type NavSection = 'profile' | 'chat' | 'posts' | 'developer';
+
+export interface SafeUser {
+  id: string;
+  username: string;
+  usernameNormalized: string;
+  primaryNickname: string;
+  alternateNicknames: string[];
+  bio: string;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  theme?: ThemePreference;
+  role?: UserRole;
+  isDemo?: boolean;
+  createdAt?: string;
+}
+
+export interface ProfileStats {
+  postCount: number;
+  friendCount: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  userAgent: string;
+  ipAddress: string;
+  lastActiveAt: string;
+  createdAt: string;
+  expiresAt: string;
+  isCurrent: boolean;
+}
+
+export interface FriendListItem {
+  friend: SafeUser;
+  online: boolean;
+  conversationId: string | null;
+  lastMessage: {
+    id: string;
+    senderId: string;
+    content: string;
+    createdAt: string;
+  } | null;
+}
+
+export interface FriendRequestItem {
+  id: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DENIED' | 'CANCELED';
+  createdAt: string;
+  user: SafeUser;
+}
+
+export interface LookupResult {
+  user: SafeUser;
+  relationship: 'NONE' | 'FRIENDS' | 'PENDING_SENT' | 'PENDING_RECEIVED' | 'BLOCKED_BY_YOU';
+  pendingRequestId: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  clientTempId?: string | null;
+  content: string;
+  deliveryState: 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  createdAt: string;
+}
+
+export interface PostItem {
+  id: string;
+  caption: string;
+  audience: PostAudience;
+  imageUrl: string;
+  mediaId: string;
+  isOwner: boolean;
+  createdAt: string;
+  updatedAt: string;
+  author: SafeUser;
+}
+
+export interface BlockedUserItem {
+  id: string;
+  blockedAt: string;
+  user: SafeUser;
+}
+
+export interface DeveloperStatusResponse {
+  accessStatus: string;
+  account: { id: string; username: string; role: UserRole };
+  policies: {
+    allowBlockingDevelopers: boolean;
+    developerCodeMode: string;
+    storageDriver: string;
+  };
+  recentAuditEvents: Array<{
+    id: string;
+    action: string;
+    outcome: string;
+    createdAt: string;
+  }>;
+  upcomingModules: Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+  }>;
+}

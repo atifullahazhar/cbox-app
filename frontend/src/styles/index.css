@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light Theme — Crisp Neutral Surfaces + Electric Blue Accent + Restrained Violet */
+  --cbox-bg: 248 250 252;
+  --cbox-surface: 255 255 255;
+  --cbox-elevated: 241 245 249;
+  --cbox-border: 226 232 240;
+  --cbox-text: 15 23 42;
+  --cbox-muted: 71 85 105;
+  --cbox-accent: 2 132 199;
+  --cbox-accent-hover: 3 105 161;
+  --cbox-violet: 109 40 217;
+  --cbox-success: 22 163 74;
+  --cbox-danger: 220 38 38;
+  --cbox-warning: 217 119 6;
+}
+
+.dark {
+  /* Dark Theme — Deep Navy/Charcoal Surfaces + Bright Electric Cyan/Blue + Violet Highlights */
+  --cbox-bg: 11 17 32;
+  --cbox-surface: 17 26 46;
+  --cbox-elevated: 24 36 61;
+  --cbox-border: 36 52 84;
+  --cbox-text: 241 245 249;
+  --cbox-muted: 148 163 184;
+  --cbox-accent: 56 189 248;
+  --cbox-accent-hover: 14 165 233;
+  --cbox-violet: 167 139 250;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 248 113 113;
+  --cbox-warning: 251 191 36;
+}
+
+@layer base {
+  html,
+  body {
+    overflow-x: hidden;
+    min-height: 100dvh;
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    touch-action: manipulation;
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--cbox-accent));
+    outline-offset: 2px;
+  }
+}
+
+/* Safe-area utilities for Android / iOS notched screens & gesture bars */
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
