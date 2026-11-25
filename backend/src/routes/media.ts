@@ -9,8 +9,8 @@ mediaRouter.use(requireAuth);
 
 /**
  * Authorized media delivery endpoint.
- * Never exposes public bucket URLs directly; checks viewer permissions on every request
- * so FRIENDS_ONLY post images cannot be accessed by non-friends via direct API calls.
+ * Serves persistent binary data directly from PostgreSQL (fileData BYTEA) first
+ * so avatars, banners, posts, stories, and voice notes NEVER disappear on Render restarts/redeploys.
  */
 mediaRouter.get('/:mediaId', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
@@ -29,7 +29,9 @@ mediaRouter.get('/:mediaId', async (req: AuthenticatedRequest, res) => {
   }
 
   try {
-    const bytes = await readStoredMedia(asset.storageKey);
+    const bytes = asset.fileData
+      ? Buffer.from(asset.fileData)
+      : await readStoredMedia(asset.storageKey);
     res.setHeader('Content-Type', asset.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.setHeader('X-Content-Type-Options', 'nosniff');

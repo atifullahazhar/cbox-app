@@ -18,7 +18,7 @@ import {
   pyTotpVerify,
   pyVerifyPassword,
 } from '../services/pythonAuth.js';
-import { assertSafeText } from '../services/moderation.js';
+import { assertSafeText, getPlatformConfig, getPlatformFeatureFlags, isExtraReservedUsername } from '../services/moderation.js';
 import {
   type AuthenticatedRequest,
   clearAuthCookies,
@@ -109,6 +109,7 @@ authRouter.get('/check-username', async (req, res) => {
   try {
     const { normalized } = normalizeUsername(raw);
     assertSafeText(normalized);
+    if (isExtraReservedUsername(normalized)) { res.json({ available: false, error: 'That username is reserved.' }); return; }
     const exists = await prisma.user.findUnique({ where: { usernameNormalized: normalized }, select: { id: true } });
     res.json({ available: !exists, normalized });
   } catch (err) {
@@ -118,6 +119,10 @@ authRouter.get('/check-username', async (req, res) => {
 
 // Single-Form Sign-Up (NO Mobile Number, NO OTP) with strict 1-Device = 1-Account Lock
 authRouter.post('/signup', authSignupLimiter, async (req, res) => {
+  if (!getPlatformFeatureFlags().signupsEnabled) {
+    res.status(503).json({ error: 'New sign-ups are temporarily paused by Developer Control.' });
+    return;
+  }
   const schema = z.object({
     username: z.string().min(3).max(24),
     primaryNickname: z.string().trim().min(1, 'Nickname is required.').max(48),
@@ -173,6 +178,7 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   let normalized: string;
   try {
     ({ display, normalized } = normalizeUsername(parsed.data.username));
+    if (isExtraReservedUsername(normalized)) throw new Error('That username is reserved.');
     assertSafeText(display);
     assertSafeText(parsed.data.primaryNickname);
     validatePasswordStrength(parsed.data.password);
@@ -205,7 +211,7 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
         passwordHash,
         alternateNicknames: [],
         bio: '',
-        themeKey: 'midnight-neon',
+        themeKey: getPlatformConfig().defaultThemeKey || 'midnight-neon',
         role,
       },
     });
@@ -257,6 +263,10 @@ authRouter.post('/login', authLoginLimiter, async (req, res) => {
     where: { usernameNormalized: rawUsername.toLowerCase() },
   });
 
+  if (user?.isSuspended) {
+    res.status(403).json({ error: 'This account has been suspended by Developer Control.' });
+    return;
+  }
   if (!user || !(await pyVerifyPassword(user.passwordHash, parsed.data.password))) {
     await recordAuditEvent({ actorId: user?.id ?? null, action: 'AUTH_LOGIN', outcome: 'FAILURE', ipAddress: req.ip });
     res.status(401).json({ error: 'Invalid username or password.' });

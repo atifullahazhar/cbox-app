@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   Clock,
   MapPin,
   Plus,
+  ShieldCheck,
   Sparkles,
   Star,
   Trash2,
@@ -31,13 +33,54 @@ const GRADIENTS = [
   { id: 'from-amber-600 to-orange-950', label: 'Sunset Gold' },
 ];
 
+function formatCountdown(isoDate: string): string {
+  const diffMs = new Date(isoDate).getTime() - Date.now();
+  if (diffMs <= 0) return 'Live / Started';
+  const totalMins = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMins / 1440);
+  const hrs = Math.floor((totalMins % 1440) / 60);
+  const mins = totalMins % 60;
+  if (days > 0) return `Starts in ${days}d ${hrs}h`;
+  if (hrs > 0) return `Starts in ${hrs}h ${mins}m`;
+  return `Starts in ${mins}m`;
+}
+
+function downloadEventIcs(ev: EventItem) {
+  const start = new Date(ev.startsAt);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const toIcs = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Chatterbox//Events//EN',
+    'BEGIN:VEVENT',
+    `UID:${ev.id}@chatterbox`,
+    `DTSTAMP:${toIcs(new Date())}`,
+    `DTSTART:${toIcs(start)}`,
+    `DTEND:${toIcs(end)}`,
+    `SUMMARY:${ev.title.replace(/\n/g, ' ')}`,
+    `LOCATION:${ev.location.replace(/\n/g, ' ')}`,
+    `DESCRIPTION:${(ev.description || 'Official Chatterbox Event').replace(/\n/g, ' ')}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${ev.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export const EventsScreen: React.FC<EventsScreenProps> = ({ currentUser, onNotify }) => {
+  const isDeveloper = currentUser.role === 'DEVELOPER';
   const [events, setEvents] = useState<EventItem[]>([]);
   const [category, setCategory] = useState('All');
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Create Event Form
+  // Create Event Form (Developer Control Only)
   const [title, setTitle] = useState('');
   const [newCategory, setNewCategory] = useState('Meetup');
   const [location, setLocation] = useState('Online on Chatterbox');
@@ -87,7 +130,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ currentUser, onNotif
       setTitle('');
       setDescription('');
       setStartsAt('');
-      onNotify('Public event created!', 'success');
+      onNotify('Official event published!', 'success');
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Could not create event.', 'error');
     } finally {
@@ -128,18 +171,25 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ currentUser, onNotif
             Chatterbox Events
           </h1>
           <p className="text-xs text-cbox-muted">
-            Discover public community events, gaming nights, music sessions, and meetups — or host your own.
+            Official community events, gaming tournaments, music nights, and meetups hosted by Developer Control.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs hover:opacity-95 transition"
-        >
-          <Plus className="h-4 w-4" />
-          Create Event
-        </button>
+        {isDeveloper ? (
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs hover:opacity-95 transition"
+          >
+            <Plus className="h-4 w-4" />
+            Host Official Event
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cbox-violet/35 bg-cbox-violet/10 text-[11px] font-semibold text-cbox-violet">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Developer-Hosted Events
+          </span>
+        )}
       </div>
 
       {/* Category Filter Pills */}
@@ -170,34 +220,52 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ currentUser, onNotif
         <EmptyState
           icon={<Sparkles className="h-6 w-6" />}
           title="No upcoming events here yet"
-          description="Be the first to host a public Chatterbox event in this category!"
+          description={
+            isDeveloper
+              ? 'Publish an official Chatterbox event for the community!'
+              : 'Stay tuned — official Chatterbox events hosted by Developer Control will appear here.'
+          }
           action={
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="px-4 py-2 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs"
-            >
-              Host an Event
-            </button>
+            isDeveloper ? (
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="px-4 py-2 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs"
+              >
+                Host an Event
+              </button>
+            ) : undefined
           }
         />
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
-          {events.map((ev) => {
-            const canDelete = ev.isCreator || currentUser.role === 'DEVELOPER';
-            return (
-              <article
-                key={ev.id}
-                className="rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft flex flex-col"
-              >
-                <div className={`bg-gradient-to-r ${ev.bgGradient} p-4 text-white flex items-start justify-between gap-2`}>
-                  <div className="space-y-1">
+          {events.map((ev) => (
+            <article
+              key={ev.id}
+              className="rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft flex flex-col"
+            >
+              <div className={`bg-gradient-to-r ${ev.bgGradient} p-4 text-white flex items-start justify-between gap-2`}>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/30 backdrop-blur">
                       {ev.category}
                     </span>
-                    <h2 className="text-base font-bold leading-snug">{ev.title}</h2>
+                    <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/20 backdrop-blur">
+                      {formatCountdown(ev.startsAt)}
+                    </span>
                   </div>
-                  {canDelete && (
+                  <h2 className="text-base font-bold leading-snug">{ev.title}</h2>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => downloadEventIcs(ev)}
+                    title="Export to Calendar (.ics)"
+                    className="p-1.5 rounded-lg bg-black/25 hover:bg-black/45 transition text-white"
+                  >
+                    <CalendarPlus className="h-4 w-4" />
+                  </button>
+                  {isDeveloper && (
                     <button
                       type="button"
                       onClick={() => handleDelete(ev)}
@@ -208,184 +276,186 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ currentUser, onNotif
                     </button>
                   )}
                 </div>
+              </div>
 
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
-                  <div className="space-y-2.5 text-xs">
-                    <div className="flex flex-wrap items-center gap-3 text-cbox-muted">
-                      <span className="inline-flex items-center gap-1.5 text-cbox-text font-medium">
-                        <Clock className="h-3.5 w-3.5 text-cbox-accent" />
-                        {new Date(ev.startsAt).toLocaleString([], {
-                          dateStyle: 'medium',
-                          timeStyle: 'short',
-                        })}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin className="h-3.5 w-3.5 text-cbox-violet" />
-                        {ev.location}
-                      </span>
-                    </div>
-
-                    {ev.description && (
-                      <p className="text-cbox-text/90 leading-relaxed">{ev.description}</p>
-                    )}
-
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex items-center gap-2">
-                        <Avatar src={ev.creator.avatarUrl} name={ev.creator.primaryNickname} size="sm" />
-                        <span className="text-[11px] text-cbox-muted">
-                          Hosted by <strong className="text-cbox-text">@{ev.creator.username}</strong>
-                        </span>
-                      </div>
-                      <span className="inline-flex items-center gap-1 text-[11px] text-cbox-muted">
-                        <Users className="h-3.5 w-3.5" />
-                        {ev.goingCount} going · {ev.interestedCount} interested
-                      </span>
-                    </div>
+              <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-3 text-cbox-muted">
+                    <span className="inline-flex items-center gap-1.5 text-cbox-text font-medium">
+                      <Clock className="h-3.5 w-3.5 text-cbox-accent" />
+                      {new Date(ev.startsAt).toLocaleString([], {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      })}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5 text-cbox-violet" />
+                      {ev.location}
+                    </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-cbox-border">
-                    <button
-                      type="button"
-                      onClick={() => handleRsvp(ev, 'GOING')}
-                      className={`py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
-                        ev.myStatus === 'GOING'
-                          ? 'bg-cbox-accent text-slate-950 border-cbox-accent'
-                          : 'bg-cbox-elevated/60 border-cbox-border text-cbox-text hover:border-cbox-accent'
-                      }`}
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {ev.myStatus === 'GOING' ? 'Going' : 'Join / Going'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRsvp(ev, 'INTERESTED')}
-                      className={`py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
-                        ev.myStatus === 'INTERESTED'
-                          ? 'bg-cbox-violet text-white border-cbox-violet'
-                          : 'bg-cbox-elevated/60 border-cbox-border text-cbox-text hover:border-cbox-violet'
-                      }`}
-                    >
-                      <Star className="h-3.5 w-3.5" />
-                      Interested
-                    </button>
+                  {ev.description && (
+                    <p className="text-cbox-text/90 leading-relaxed">{ev.description}</p>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-2">
+                      <Avatar src={ev.creator.avatarUrl} name={ev.creator.primaryNickname} size="sm" />
+                      <span className="text-[11px] text-cbox-muted">
+                        Official Host <strong className="text-cbox-text">@{ev.creator.username}</strong>
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] text-cbox-muted">
+                      <Users className="h-3.5 w-3.5" />
+                      {ev.goingCount} going · {ev.interestedCount} interested
+                    </span>
                   </div>
                 </div>
-              </article>
-            );
-          })}
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-cbox-border">
+                  <button
+                    type="button"
+                    onClick={() => handleRsvp(ev, 'GOING')}
+                    className={`py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
+                      ev.myStatus === 'GOING'
+                        ? 'bg-cbox-accent text-slate-950 border-cbox-accent'
+                        : 'bg-cbox-elevated/60 border-cbox-border text-cbox-text hover:border-cbox-accent'
+                    }`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {ev.myStatus === 'GOING' ? 'Going' : 'Join / Going'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRsvp(ev, 'INTERESTED')}
+                    className={`py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
+                      ev.myStatus === 'INTERESTED'
+                        ? 'bg-cbox-violet text-white border-cbox-violet'
+                        : 'bg-cbox-elevated/60 border-cbox-border text-cbox-text hover:border-cbox-violet'
+                    }`}
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                    Interested
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
       )}
 
-      {/* Create Event Modal */}
-      <Modal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Host a Public Event"
-        description="Everyone on Chatterbox can discover and RSVP to your event."
-      >
-        <form onSubmit={handleCreateEvent} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-cbox-muted">Event Title</label>
-            <input
-              type="text"
-              required
-              minLength={3}
-              maxLength={100}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Weekend Valorant Custom Lobby"
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
-            />
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-3">
+      {/* Create Event Modal — Strictly Developer Control Only */}
+      {isDeveloper && (
+        <Modal
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          title="Host Official Chatterbox Event"
+          description="Only Developer Control accounts can publish public events."
+        >
+          <form onSubmit={handleCreateEvent} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-cbox-muted">Category</label>
-              <select
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
-              >
-                {CATEGORIES.filter((c) => c !== 'All').map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-cbox-muted">Date & Time</label>
+              <label className="text-xs font-semibold text-cbox-muted">Event Title</label>
               <input
-                type="datetime-local"
+                type="text"
                 required
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
+                minLength={3}
+                maxLength={100}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Weekend Valorant Custom Lobby"
+                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
               />
             </div>
-          </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-cbox-muted">Location or Link</label>
-            <input
-              type="text"
-              required
-              maxLength={120}
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Online on Chatterbox / Mumbai Meetup"
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-cbox-muted">Description</label>
-            <textarea
-              rows={3}
-              maxLength={600}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What's happening at this event?"
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-cbox-muted">Banner Style</label>
-            <div className="flex flex-wrap gap-2">
-              {GRADIENTS.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => setBgGradient(g.id)}
-                  className={`h-8 px-3 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r ${g.id} ${
-                    bgGradient === g.id ? 'ring-2 ring-cbox-accent ring-offset-2 ring-offset-cbox-surface' : 'opacity-75'
-                  }`}
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-cbox-muted">Category</label>
+                <select
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
                 >
-                  {g.label}
-                </button>
-              ))}
+                  {CATEGORIES.filter((c) => c !== 'All').map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-cbox-muted">Date & Time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={startsAt}
+                  onChange={(e) => setStartsAt(e.target.value)}
+                  className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setCreateOpen(false)}
-              className="px-4 py-2 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="px-5 py-2 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs disabled:opacity-50"
-            >
-              {creating ? 'Publishing…' : 'Publish Event'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-cbox-muted">Location or Link</label>
+              <input
+                type="text"
+                required
+                maxLength={120}
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Online on Chatterbox / Mumbai Meetup"
+                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-cbox-muted">Description</label>
+              <textarea
+                rows={3}
+                maxLength={600}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What's happening at this event?"
+                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-cbox-muted">Banner Style</label>
+              <div className="flex flex-wrap gap-2">
+                {GRADIENTS.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => setBgGradient(g.id)}
+                    className={`h-8 px-3 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r ${g.id} ${
+                      bgGradient === g.id ? 'ring-2 ring-cbox-accent ring-offset-2 ring-offset-cbox-surface' : 'opacity-75'
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="px-4 py-2 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating}
+                className="px-5 py-2 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs disabled:opacity-50"
+              >
+                {creating ? 'Publishing…' : 'Publish Official Event'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 };

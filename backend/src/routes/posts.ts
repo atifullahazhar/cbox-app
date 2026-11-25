@@ -1,4 +1,4 @@
-import { assertSafeText } from '../services/moderation.js';
+import { assertSafeText, getPlatformFeatureFlags } from '../services/moderation.js';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -107,6 +107,10 @@ postsRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
 });
 
 postsRouter.post('/', uploadLimiter, upload.single('image'), async (req: AuthenticatedRequest, res) => {
+  if (getPlatformFeatureFlags().publicFeedFreeze && req.body?.audience === 'PUBLIC') {
+    res.status(503).json({ error: 'Public posting is temporarily paused by Developer Control.' });
+    return;
+  }
   if (!req.file) {
     res.status(400).json({ error: 'Please select a photo before posting.' });
     return;

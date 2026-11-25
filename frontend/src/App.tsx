@@ -26,6 +26,7 @@ export const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
+  const [announcement, setAnnouncement] = useState<string>("");
 
   const isOnline = useOnlineStatus();
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
@@ -99,6 +100,13 @@ export const App: React.FC = () => {
       socket.off('call:offer', onIncomingOffer);
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) { setAnnouncement(""); return; }
+    apiFetch<{ announcement: string }>("/api/developer/public-state")
+      .then((res) => setAnnouncement(res.announcement || ""))
+      .catch(() => {});
+  }, [user?.id, activeNav]);
 
   useEffect(() => {
     if (activeNav === 'developer' && user?.role !== 'DEVELOPER') {
@@ -181,6 +189,12 @@ export const App: React.FC = () => {
             isInstalledPwa={isInstalled}
             onOpenInstallModal={() => setInstallModalOpen(true)}
           >
+            {announcement && (
+              <div className="mb-4 px-4 py-2.5 rounded-2xl border border-cbox-accent/40 bg-cbox-accent/15 text-xs font-semibold text-cbox-text flex items-center justify-between gap-2">
+                <span>📢 {announcement}</span>
+              </div>
+            )}
+
             {activeNav === 'profile' && (
               <ProfileScreen
                 user={user}

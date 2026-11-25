@@ -394,6 +394,7 @@ chatRouter.post(
             storageKey: stored.storageKey,
             mimeType: stored.mimeType,
             byteSize: stored.byteSize,
+            fileData: stored.fileData,
             width: 'width' in stored ? Number(stored.width) : null,
             height: 'height' in stored ? Number(stored.height) : null,
           },

@@ -91,6 +91,9 @@ model User {
   hideOnlineStatus    Boolean         @default(false)
   disableReadReceipts Boolean         @default(false)
   role                UserRole        @default(USER)
+  isSuspended         Boolean         @default(false)
+  isVerified          Boolean         @default(false)
+  customFlair         String          @default("") @db.VarChar(32)
   isDemo              Boolean         @default(false)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
@@ -202,6 +205,7 @@ model MediaAsset {
   byteSize    Int
   width       Int?
   height      Int?
+  fileData    Bytes?
   createdAt   DateTime     @default(now())
 
   owner       User         @relation("UploadedMedia", fields: [ownerId], references: [id], onDelete: Cascade)

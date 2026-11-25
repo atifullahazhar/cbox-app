@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { MediaPurpose } from '@prisma/client';
 import { env } from '../config/env.js';
-import { assertSafeImageBuffer } from './moderation.js';
+import { assertSafeImageBuffer, getPlatformConfig, getPlatformFeatureFlags } from './moderation.js';
 
 const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_AUDIO_MIMES = new Set([
@@ -55,9 +55,13 @@ async function writeBuffer(storageKey: string, data: Buffer, contentType: string
       })
     );
   } else {
-    const fullPath = path.join(env.localStorageDir, storageKey);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, data);
+    try {
+      const fullPath = path.join(env.localStorageDir, storageKey);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, data);
+    } catch {
+      // Primary copy is stored in PostgreSQL MediaAsset.fileData so local disk errors are non-fatal
+    }
   }
 }
 
@@ -73,18 +77,22 @@ export async function processAndStoreImage(params: {
   byteSize: number;
   width: number;
   height: number;
+  fileData: Buffer;
 }> {
+  if (!getPlatformFeatureFlags().mediaUploadsEnabled) {
+    throw new Error('Media uploads are temporarily paused by Developer Control.');
+  }
   if (params.declaredMimeType.startsWith('video/')) {
     throw new Error('Blocked by Chatterbox Safety Filter: Video uploads are strictly disabled.');
   }
   if (!ALLOWED_IMAGE_MIMES.has(params.declaredMimeType)) {
     throw new Error('Unsupported image type. Allowed formats: JPEG, PNG, WebP.');
   }
-  if (params.buffer.length === 0 || params.buffer.length > env.maxUploadBytes) {
-    throw new Error(`Image exceeds maximum allowed size (${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).`);
+  const maxBytes = Math.min(env.maxUploadBytes, getPlatformConfig().maxUploadMb * 1024 * 1024);
+  if (params.buffer.length === 0 || params.buffer.length > maxBytes) {
+    throw new Error(`Image exceeds maximum allowed size (${Math.round(maxBytes / (1024 * 1024))} MB).`);
   }
 
-  // Enforce anti-NSFW / explicit image safety screening before storing
   await assertSafeImageBuffer(params.buffer, params.originalFilename);
 
   const dims = IMAGE_DIMENSIONS[params.purpose] || { maxWidth: 1600, maxHeight: 1600 };
@@ -103,7 +111,7 @@ export async function processAndStoreImage(params: {
       fit: 'inside',
       withoutEnlargement: true,
     })
-    .webp({ quality: 84 })
+    .webp({ quality: 82 })
     .toBuffer({ resolveWithObject: true });
 
   const storageKey = `${params.purpose.toLowerCase()}/${params.ownerId}/${crypto.randomUUID()}.webp`;
@@ -115,6 +123,7 @@ export async function processAndStoreImage(params: {
     byteSize: reencoded.info.size,
     width: reencoded.info.width,
     height: reencoded.info.height,
+    fileData: reencoded.data,
   };
 }
 
@@ -127,13 +136,18 @@ export async function processAndStoreAudio(params: {
   storageKey: string;
   mimeType: string;
   byteSize: number;
+  fileData: Buffer;
 }> {
+  if (!getPlatformFeatureFlags().mediaUploadsEnabled) {
+    throw new Error('Media uploads are temporarily paused by Developer Control.');
+  }
   const baseMime = params.declaredMimeType.split(';')[0].trim().toLowerCase();
   if (!ALLOWED_AUDIO_MIMES.has(baseMime)) {
     throw new Error('Unsupported audio format for voice note.');
   }
-  if (params.buffer.length === 0 || params.buffer.length > env.maxUploadBytes) {
-    throw new Error(`Voice note exceeds maximum allowed size (${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).`);
+  const maxBytes = Math.min(env.maxUploadBytes, getPlatformConfig().maxUploadMb * 1024 * 1024);
+  if (params.buffer.length === 0 || params.buffer.length > maxBytes) {
+    throw new Error(`Voice note exceeds maximum allowed size (${Math.round(maxBytes / (1024 * 1024))} MB).`);
   }
 
   const extMap: Record<string, string> = {
@@ -151,6 +165,7 @@ export async function processAndStoreAudio(params: {
     storageKey,
     mimeType: baseMime,
     byteSize: params.buffer.length,
+    fileData: params.buffer,
   };
 }
 

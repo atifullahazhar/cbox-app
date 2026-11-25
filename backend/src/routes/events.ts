@@ -1,10 +1,10 @@
-import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { EventRsvpStatus, UserRole } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { type AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
 import { toPublicUserDTO } from '../utils/security.js';
+import { assertSafeText } from '../services/moderation.js';
 
 export const eventsRouter = Router();
 eventsRouter.use(requireAuth);
@@ -41,7 +41,7 @@ function serializeEvent(ev: any, viewerId: string) {
   };
 }
 
-// List public community events
+// List public community events (visible to all authenticated users)
 eventsRouter.get('/', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const category = typeof req.query.category === 'string' && req.query.category !== 'All' ? req.query.category : undefined;
@@ -61,8 +61,13 @@ eventsRouter.get('/', async (req: AuthenticatedRequest, res) => {
   res.json({ events: events.map((e) => serializeEvent(e, viewerId)) });
 });
 
-// Create a new public event
+// Create a new public event — STRICTLY DEVELOPER CONTROL ONLY
 eventsRouter.post('/', async (req: AuthenticatedRequest, res) => {
+  if (req.auth!.user.role !== UserRole.DEVELOPER) {
+    res.status(403).json({ error: 'Only Developer Control accounts can host public events.' });
+    return;
+  }
+
   const schema = z.object({
     title: z.string().trim().min(3).max(100),
     category: z.string().default('Meetup'),
@@ -77,7 +82,15 @@ eventsRouter.post('/', async (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  try { assertSafeText(parsed.data.title); assertSafeText(parsed.data.description); assertSafeText(parsed.data.location); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
+  try {
+    assertSafeText(parsed.data.title);
+    assertSafeText(parsed.data.description);
+    assertSafeText(parsed.data.location);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Blocked by Safety Filter.' });
+    return;
+  }
+
   const startsAt = new Date(parsed.data.startsAt);
   if (Number.isNaN(startsAt.getTime())) {
     res.status(400).json({ error: 'Invalid event date/time.' });
@@ -106,7 +119,7 @@ eventsRouter.post('/', async (req: AuthenticatedRequest, res) => {
   res.status(201).json({ event: serializeEvent(created, req.auth!.user.id) });
 });
 
-// RSVP to an event (GOING | INTERESTED | NONE)
+// RSVP to an event (GOING | INTERESTED | NONE) — open to all users
 eventsRouter.post('/:id/rsvp', async (req: AuthenticatedRequest, res) => {
   const schema = z.object({ status: z.enum(['GOING', 'INTERESTED', 'NONE']) });
   const parsed = schema.safeParse(req.body);
@@ -140,15 +153,15 @@ eventsRouter.post('/:id/rsvp', async (req: AuthenticatedRequest, res) => {
   res.json({ event: serializeEvent(refreshed, viewerId) });
 });
 
-// Delete event (creator or developer control)
+// Delete event — STRICTLY DEVELOPER CONTROL ONLY
 eventsRouter.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  if (req.auth!.user.role !== UserRole.DEVELOPER) {
+    res.status(403).json({ error: 'Only Developer Control can delete events.' });
+    return;
+  }
   const ev = await prisma.event.findUnique({ where: { id: req.params.id } });
   if (!ev) {
     res.status(404).json({ error: 'Event not found.' });
-    return;
-  }
-  if (ev.creatorId !== req.auth!.user.id && req.auth!.user.role !== UserRole.DEVELOPER) {
-    res.status(403).json({ error: 'Only the host or Developer Control can delete this event.' });
     return;
   }
   await prisma.event.delete({ where: { id: ev.id } });

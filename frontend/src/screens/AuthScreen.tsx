@@ -259,7 +259,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <div className="flex items-center justify-between px-1">
                 <CboxLogo size={26} />
                 <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-cbox-accent/15 text-cbox-accent">
-                  Safe v5
+                  CB1
                 </span>
               </div>
               <div className="rounded-2xl p-3.5 bg-gradient-to-br from-cbox-accent/20 via-cbox-violet/15 to-transparent border border-cbox-border/70 space-y-2">
