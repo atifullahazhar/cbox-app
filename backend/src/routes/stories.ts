@@ -31,13 +31,15 @@ const ALLOWED_GRADIENTS = new Set([
 storiesRouter.get('/', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const now = new Date();
-  const [friendIds, blockedIds] = await Promise.all([
+  const [friendIds, blockedIds, closeFriendOfRows] = await Promise.all([
     getFriendIds(viewerId),
     getBlockedUserIds(viewerId),
+    prisma.closeFriend.findMany({ where: { friendId: viewerId }, select: { userId: true } }),
   ]);
 
   const blockedArray = Array.from(blockedIds);
   const allowedFriendIds = friendIds.filter((id) => !blockedIds.has(id));
+  const closeFriendAuthorIds = closeFriendOfRows.map((r) => r.userId).filter((id) => !blockedIds.has(id));
 
   const stories = await prisma.story.findMany({
     where: {
@@ -50,6 +52,10 @@ storiesRouter.get('/', async (req: AuthenticatedRequest, res) => {
         {
           audience: PostAudience.FRIENDS_ONLY,
           authorId: { in: allowedFriendIds },
+        },
+        {
+          audience: PostAudience.CLOSE_FRIENDS,
+          authorId: { in: closeFriendAuthorIds },
         },
       ],
     },

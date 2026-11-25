@@ -3,7 +3,7 @@ import type { ThemeKey } from '../themes';
 export type UserRole = 'USER' | 'DEVELOPER';
 export type GroupRank = 'OWNER' | 'ADMIN' | 'VICE_ADMIN' | 'MEMBER';
 export type ThemePreference = 'SYSTEM' | 'LIGHT' | 'DARK';
-export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC';
+export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC' | 'CLOSE_FRIENDS';
 export type NavSection = 'profile' | 'chat' | 'posts' | 'communities' | 'developer';
 
 export interface SafeUser {
@@ -26,8 +26,51 @@ export interface SafeUser {
   theme?: ThemePreference;
   themeKey?: ThemeKey;
   role?: UserRole;
+  customFlair?: string;
+  avatarFrame?: string;
+  profileEffect?: string;
+  customStatusEmoji?: string;
+  customStatusText?: string;
+  profileMusicTitle?: string;
+  profileMusicArtist?: string;
+  profileMusicPreset?: string;
+  profileMusicUrl?: string | null;
+  bioLinks?: Array<{ label: string; url: string }>;
+  interestTags?: string[];
+  showProfileViews?: boolean;
+  isCloseFriend?: boolean;
   isDemo?: boolean;
   createdAt?: string;
+}
+
+export interface ProfileBadgeItem {
+  id: string;
+  label: string;
+  emoji: string;
+  tone: 'dev' | 'verified' | 'gold' | 'violet' | 'emerald' | 'sky';
+  description: string;
+}
+
+export interface StoryHighlightStory {
+  id: string;
+  imageUrl: string | null;
+  textContent: string;
+  bgGradient: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface StoryHighlightItem {
+  id: string;
+  title: string;
+  coverEmoji: string;
+  createdAt: string;
+  stories: StoryHighlightStory[];
+}
+
+export interface ProfileVisitorItem {
+  viewedAt: string;
+  viewer: SafeUser;
 }
 
 export interface ChatRequestItem {
@@ -85,6 +128,7 @@ export interface CommunityMessage {
 export interface ProfileStats {
   postCount: number;
   friendCount: number;
+  profileViewsCount?: number | null;
 }
 
 export interface SessionInfo {

@@ -84,6 +84,56 @@ friendsRouter.get('/general', async (req: AuthenticatedRequest, res) => {
   res.json({ friends });
 });
 
+
+friendsRouter.get('/discover-public', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const blockedIds = await getBlockedUserIds(viewerId);
+  const excludeIds = [viewerId, ...Array.from(blockedIds)];
+
+  const [publicUsers, friendships, pendingReqs] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        isPrivateProfile: false,
+        isSuspended: false,
+        id: { notIn: excludeIds },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+    }),
+    prisma.friendship.findMany({
+      where: { OR: [{ userAId: viewerId }, { userBId: viewerId }] },
+      select: { userAId: true, userBId: true },
+    }),
+    prisma.friendRequest.findMany({
+      where: {
+        status: FriendRequestStatus.PENDING,
+        OR: [{ senderId: viewerId }, { receiverId: viewerId }],
+      },
+      select: { senderId: true, receiverId: true },
+    }),
+  ]);
+
+  const friendSet = new Set(friendships.map((f) => (f.userAId === viewerId ? f.userBId : f.userAId)));
+  const sentSet = new Set(pendingReqs.filter((r) => r.senderId === viewerId).map((r) => r.receiverId));
+  const recvSet = new Set(pendingReqs.filter((r) => r.receiverId === viewerId).map((r) => r.senderId));
+
+  res.json({
+    users: publicUsers.map((u) => {
+      const relationship = friendSet.has(u.id)
+        ? 'FRIENDS'
+        : sentSet.has(u.id)
+          ? 'PENDING_SENT'
+          : recvSet.has(u.id)
+            ? 'PENDING_RECEIVED'
+            : 'NONE';
+      return {
+        user: toPublicUserDTO(u),
+        relationship,
+      };
+    }),
+  });
+});
+
 friendsRouter.get('/lookup', async (req: AuthenticatedRequest, res) => {
   const raw = typeof req.query.username === 'string' ? req.query.username.trim().toLowerCase() : '';
   if (!raw) {

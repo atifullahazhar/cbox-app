@@ -298,6 +298,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                 className="rounded-lg bg-cbox-elevated border border-cbox-border px-2.5 py-1.5 text-xs text-cbox-text"
               >
                 <option value="FRIENDS_ONLY">Friends only</option>
+              <option value="CLOSE_FRIENDS">💚 Close Friends</option>
                 <option value="PUBLIC">Public</option>
               </select>
               <div className="flex gap-2">

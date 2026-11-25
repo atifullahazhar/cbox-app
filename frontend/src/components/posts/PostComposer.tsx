@@ -207,6 +207,18 @@ export const PostComposer: React.FC<PostComposerProps> = ({ open, onClose, onCre
                 </p>
               </div>
             </button>
+            <button
+              type="button"
+              onClick={() => setAudience('CLOSE_FRIENDS')}
+              className={`p-3 rounded-xl border text-left transition ${
+                audience === 'CLOSE_FRIENDS'
+                  ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
+                  : 'border-cbox-border bg-cbox-elevated/40 text-cbox-muted hover:text-cbox-text'
+              }`}
+            >
+              <p className="text-xs font-semibold">💚 Close Friends</p>
+              <p className="text-[11px] opacity-80">Inner circle only</p>
+            </button>
           </div>
 
           {uploading && (

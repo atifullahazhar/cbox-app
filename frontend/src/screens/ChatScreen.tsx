@@ -89,6 +89,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [reportUser, setReportUser] = useState<SafeUser | null>(null);
   const [blocking, setBlocking] = useState(false);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
+  const [publicProfiles, setPublicProfiles] = useState<Array<{ user: SafeUser; relationship: string }>>([]);
+  const [publicSearch, setPublicSearch] = useState('');
 
   function syncTotalBadge(friendList: FriendListItem[], reqList: FriendRequestItem[]) {
     const unread = friendList.reduce((acc, f) => acc + (f.unreadCount || 0), 0);
@@ -98,14 +100,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   async function refreshHub() {
     setLoading(true);
     try {
-      const [gRes, sRes, rRes] = await Promise.all([
+      const [gRes, sRes, rRes, pubRes] = await Promise.all([
         apiFetch<{ friends: FriendListItem[] }>('/api/friends/general'),
         apiFetch<{ requests: FriendRequestItem[] }>('/api/friends/requests/sent'),
         apiFetch<{ requests: FriendRequestItem[] }>('/api/friends/requests/received'),
+        apiFetch<{ users: Array<{ user: SafeUser; relationship: string }> }>('/api/friends/discover-public').catch(() => ({ users: [] })),
       ]);
       setFriends(gRes.friends);
       setSentRequests(sRes.requests);
       setReceivedRequests(rRes.requests);
+      setPublicProfiles(pubRes.users || []);
       syncTotalBadge(gRes.friends, rRes.requests);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Failed to load chat hub.', 'error');
@@ -731,15 +735,94 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 </div>
               )}
             </form>
-            {sentRequests.length === 0 ? (
-              <EmptyState icon={<Send className="h-6 w-6" />} title="No pending sent requests" description="Search an exact username above to send a friend request." />
-            ) : (
-              <div className="space-y-2.5">
-                {sentRequests.map((req) => (
-                  <RequestCard key={req.id} request={req} direction="sent" busy={actionBusyId === req.id} onCancel={() => handleCancelSent(req.id)} />
-                ))}
+            {sentRequests.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-cbox-muted px-1">Pending Sent Requests ({sentRequests.length})</p>
+                <div className="space-y-2.5">
+                  {sentRequests.map((req) => (
+                    <RequestCard key={req.id} request={req} direction="sent" busy={actionBusyId === req.id} onCancel={() => handleCancelSent(req.id)} />
+                  ))}
+                </div>
               </div>
             )}
+
+            <div className="p-4 rounded-2xl border border-cbox-border bg-cbox-surface space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-cbox-text">Public Profiles</h3>
+                  <p className="text-[11px] text-cbox-muted">Only public accounts appear here · Private accounts stay hidden</p>
+                </div>
+                <span className="text-[11px] font-semibold text-cbox-accent">{publicProfiles.length}</span>
+              </div>
+
+              {publicProfiles.length > 4 && (
+                <input
+                  type="text"
+                  value={publicSearch}
+                  onChange={(e) => setPublicSearch(e.target.value)}
+                  placeholder="Filter public profiles..."
+                  className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-1.5 text-xs text-cbox-text"
+                />
+              )}
+
+              {publicProfiles.length === 0 ? (
+                <p className="text-xs text-cbox-muted text-center py-4">No other public profiles available yet.</p>
+              ) : (
+                <div className="divide-y divide-cbox-border max-h-80 overflow-y-auto">
+                  {publicProfiles
+                    .filter((item) => {
+                      const q = publicSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        item.user.username.toLowerCase().includes(q) ||
+                        item.user.primaryNickname.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((item) => (
+                      <div key={item.user.id} className="py-2.5 flex items-center justify-between gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setProfileUsername(item.user.username)}
+                          className="flex items-center gap-2.5 min-w-0 text-left flex-1 hover:opacity-90"
+                        >
+                          <Avatar src={item.user.avatarUrl} name={item.user.primaryNickname} size="sm" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-cbox-text truncate">{item.user.primaryNickname}</span>
+                              <RankBadges userRole={item.user.role} isVerified={item.user.isVerified} />
+                            </div>
+                            <p className="text-[11px] text-cbox-muted truncate">
+                              @{item.user.username}
+                              {item.user.customStatusText ? ` · ${item.user.customStatusEmoji || ''} ${item.user.customStatusText}` : ''}
+                            </p>
+                          </div>
+                        </button>
+                        {item.relationship === 'NONE' ? (
+                          <button
+                            type="button"
+                            disabled={actionBusyId === 'send'}
+                            onClick={async () => {
+                              await handleSendRequest(item.user.username);
+                              setPublicProfiles((prev) =>
+                                prev.map((p) => (p.user.id === item.user.id ? { ...p, relationship: 'PENDING_SENT' } : p))
+                              );
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cbox-accent text-slate-950 text-[11px] font-bold shrink-0"
+                          >
+                            <UserPlus className="h-3 w-3" /> Add
+                          </button>
+                        ) : item.relationship === 'FRIENDS' ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-cbox-success/15 text-cbox-success shrink-0">Friends</span>
+                        ) : item.relationship === 'PENDING_SENT' ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-cbox-elevated text-cbox-muted border border-cbox-border shrink-0">Sent</span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-cbox-violet/15 text-cbox-violet shrink-0">Pending</span>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : receivedRequests.length === 0 ? (
           <EmptyState icon={<Inbox className="h-6 w-6" />} title="No incoming requests" description="Incoming friend requests appear here." />

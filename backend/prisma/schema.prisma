@@ -28,6 +28,7 @@ enum FriendRequestStatus {
 enum PostAudience {
   FRIENDS_ONLY
   PUBLIC
+  CLOSE_FRIENDS
 }
 
 enum MediaPurpose {
@@ -38,6 +39,7 @@ enum MediaPurpose {
   CHAT_AUDIO
   STORY_IMAGE
   CHAT_VIDEO
+  PROFILE_AUDIO
 }
 
 enum MessageDeliveryState {
@@ -107,6 +109,17 @@ model User {
   isSuspended         Boolean         @default(false)
   isVerified          Boolean         @default(false)
   customFlair         String          @default("") @db.VarChar(32)
+  avatarFrame         String          @default("none") @db.VarChar(32)
+  profileEffect       String          @default("none") @db.VarChar(32)
+  customStatusEmoji   String          @default("") @db.VarChar(16)
+  customStatusText    String          @default("") @db.VarChar(80)
+  profileMusicTitle   String          @default("") @db.VarChar(80)
+  profileMusicArtist  String          @default("") @db.VarChar(64)
+  profileMusicPreset  String          @default("") @db.VarChar(32)
+  profileMusicMediaId String?
+  bioLinks            Json?
+  interestTags        String[]        @default([])
+  showProfileViews    Boolean         @default(true)
   isDemo              Boolean         @default(false)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
@@ -147,6 +160,13 @@ model User {
   communitiesCreated  Community[]        @relation("CommunityCreator")
   communityMemberships CommunityMember[] @relation("UserCommunityMemberships")
   communityMessages   CommunityMessage[] @relation("UserCommunityMessages")
+  storyHighlights     StoryHighlight[]   @relation("UserStoryHighlights")
+  profileViewsReceived ProfileView[]     @relation("ProfileViewsReceived")
+  profileViewsMade    ProfileView[]      @relation("ProfileViewsMade")
+  closeFriends        CloseFriend[]      @relation("UserCloseFriends")
+  closeFriendOf       CloseFriend[]      @relation("UserCloseFriendOf")
+  moderationPrefsOwned UserModerationPref[] @relation("UserModPrefsOwned")
+  moderationPrefsTarget UserModerationPref[] @relation("UserModPrefsTarget")
 
   @@index([usernameNormalized])
   @@index([phoneNormalized])
@@ -424,6 +444,7 @@ model Post {
   mediaId      String         @unique
   caption      String         @default("") @db.VarChar(1000)
   audience     PostAudience   @default(FRIENDS_ONLY)
+  isPinned     Boolean        @default(false)
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -619,4 +640,60 @@ model CommunityMessage {
   sender    User             @relation("UserCommunityMessages", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([channelId, createdAt])
+}
+
+
+model StoryHighlight {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String   @db.VarChar(32)
+  coverEmoji String   @default("✨") @db.VarChar(16)
+  storyIds   String[] @default([])
+  createdAt  DateTime @default(now())
+
+  user       User     @relation("UserStoryHighlights", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model ProfileView {
+  id            String   @id @default(cuid())
+  profileUserId String
+  viewerId      String
+  viewedAt      DateTime @default(now())
+
+  profileUser   User     @relation("ProfileViewsReceived", fields: [profileUserId], references: [id], onDelete: Cascade)
+  viewer        User     @relation("ProfileViewsMade", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([profileUserId, viewerId])
+  @@index([profileUserId, viewedAt])
+}
+
+model CloseFriend {
+  id        String   @id @default(cuid())
+  userId    String
+  friendId  String
+  createdAt DateTime @default(now())
+
+  user      User     @relation("UserCloseFriends", fields: [userId], references: [id], onDelete: Cascade)
+  friend    User     @relation("UserCloseFriendOf", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+}
+
+model UserModerationPref {
+  id           String   @id @default(cuid())
+  ownerId      String
+  targetId     String
+  isMuted      Boolean  @default(false)
+  isRestricted Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+
+  owner        User     @relation("UserModPrefsOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  target       User     @relation("UserModPrefsTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, targetId])
+  @@index([ownerId])
 }

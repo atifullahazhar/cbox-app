@@ -145,6 +145,18 @@ export interface SafeUserDTO {
   themeKey?: string;
   role?: 'USER' | 'DEVELOPER';
   isVerified?: boolean;
+  customFlair?: string;
+  avatarFrame?: string;
+  profileEffect?: string;
+  customStatusEmoji?: string;
+  customStatusText?: string;
+  profileMusicTitle?: string;
+  profileMusicArtist?: string;
+  profileMusicPreset?: string;
+  profileMusicUrl?: string | null;
+  bioLinks?: Array<{ label: string; url: string }>;
+  interestTags?: string[];
+  showProfileViews?: boolean;
   isDemo?: boolean;
   createdAt?: string;
 }
@@ -161,8 +173,26 @@ export function toPublicUserDTO(user: {
   bannerMediaId: string | null;
   role?: 'USER' | 'DEVELOPER';
   isVerified?: boolean;
+  customFlair?: string;
+  avatarFrame?: string;
+  profileEffect?: string;
+  customStatusEmoji?: string;
+  customStatusText?: string;
+  profileMusicTitle?: string;
+  profileMusicArtist?: string;
+  profileMusicPreset?: string;
+  profileMusicMediaId?: string | null;
+  bioLinks?: unknown;
+  interestTags?: string[];
+  showProfileViews?: boolean;
   isDemo?: boolean;
 }): SafeUserDTO {
+  const rawLinks = Array.isArray(user.bioLinks) ? user.bioLinks : [];
+  const bioLinks = rawLinks
+    .filter((l: any) => l && typeof l.label === 'string' && typeof l.url === 'string')
+    .slice(0, 5)
+    .map((l: any) => ({ label: l.label, url: l.url }));
+
   return {
     id: user.id,
     username: user.usernameDisplay,
@@ -175,6 +205,18 @@ export function toPublicUserDTO(user: {
     bannerUrl: user.bannerMediaId ? `/api/media/${user.bannerMediaId}` : null,
     role: user.role,
     isVerified: Boolean(user.isVerified),
+    customFlair: user.customFlair || '',
+    avatarFrame: user.avatarFrame || 'none',
+    profileEffect: user.profileEffect || 'none',
+    customStatusEmoji: user.customStatusEmoji || '',
+    customStatusText: user.customStatusText || '',
+    profileMusicTitle: user.profileMusicTitle || '',
+    profileMusicArtist: user.profileMusicArtist || '',
+    profileMusicPreset: user.profileMusicPreset || '',
+    profileMusicUrl: user.profileMusicMediaId ? `/api/media/${user.profileMusicMediaId}` : null,
+    bioLinks,
+    interestTags: Array.isArray(user.interestTags) ? user.interestTags : [],
+    showProfileViews: user.showProfileViews !== false,
     isDemo: user.isDemo,
   };
 }
@@ -198,6 +240,19 @@ export function toSelfUserDTO(user: {
   theme: 'SYSTEM' | 'LIGHT' | 'DARK';
   themeKey?: string;
   role: 'USER' | 'DEVELOPER';
+  isVerified?: boolean;
+  customFlair?: string;
+  avatarFrame?: string;
+  profileEffect?: string;
+  customStatusEmoji?: string;
+  customStatusText?: string;
+  profileMusicTitle?: string;
+  profileMusicArtist?: string;
+  profileMusicPreset?: string;
+  profileMusicMediaId?: string | null;
+  bioLinks?: unknown;
+  interestTags?: string[];
+  showProfileViews?: boolean;
   isDemo: boolean;
   createdAt: Date;
 }): SafeUserDTO {

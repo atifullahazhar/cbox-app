@@ -1,6 +1,19 @@
-import React, { useState } from 'react';
-import { BadgeCheck, Crown, Shield, Sparkles, Star } from 'lucide-react';
-import type { GroupRank, UserRole } from '../../types';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  BadgeCheck,
+  Check,
+  Copy,
+  Crown,
+  Download,
+  Music,
+  Pause,
+  Play,
+  Shield,
+  Sparkles,
+  Star,
+} from 'lucide-react';
+import type { GroupRank, ProfileBadgeItem, SafeUser, UserRole } from '../../types';
+import { Modal } from './Modal';
 
 // ===================== COOL RANK & EXCLUSIVE DEVELOPER BADGES =====================
 export const RankBadges: React.FC<{
@@ -143,5 +156,320 @@ export const EmojiStickerPicker: React.FC<{
         </div>
       )}
     </div>
+  );
+};
+
+// ===================== CB2.1 ULTIMATE PROFILE CONSTANTS & WIDGETS =====================
+export const AVATAR_FRAMES: Array<{ id: string; name: string; emoji: string; devOnly?: boolean; cls: string }> = [
+  { id: 'none', name: 'None', emoji: '⭕', cls: '' },
+  { id: 'neon-pulse', name: 'Neon Pulse', emoji: '💫', cls: 'cb-frame-neon-pulse' },
+  { id: 'sakura-bloom', name: 'Sakura Bloom', emoji: '🌸', cls: 'cb-frame-sakura-bloom' },
+  { id: 'golden-crown', name: 'Golden Crown', emoji: '👑', cls: 'cb-frame-golden-crown' },
+  { id: 'cyber-ring', name: 'Cyber Ring', emoji: '⚡', cls: 'cb-frame-cyber-ring' },
+  { id: 'aurora-glow', name: 'Aurora Glow', emoji: '🌌', cls: 'cb-frame-aurora-glow' },
+  { id: 'dev-holo', name: 'DEV Hologram', emoji: '🛸', devOnly: true, cls: 'cb-frame-dev-holo' },
+];
+
+export const PROFILE_EFFECTS: Array<{ id: string; name: string; emoji: string; cls: string }> = [
+  { id: 'none', name: 'None', emoji: '✨', cls: '' },
+  { id: 'sparkle-dust', name: 'Sparkle Dust', emoji: '🌟', cls: 'cb-effect-sparkle-dust' },
+  { id: 'sakura-petals', name: 'Sakura Petals', emoji: '🌸', cls: 'cb-effect-sakura-petals' },
+  { id: 'cyber-grid', name: 'Cyber Grid', emoji: '🔷', cls: 'cb-effect-cyber-grid' },
+  { id: 'aurora-wave', name: 'Aurora Wave', emoji: '🌈', cls: 'cb-effect-aurora-wave' },
+  { id: 'starfield', name: 'Starfield', emoji: '🌠', cls: 'cb-effect-starfield' },
+];
+
+export const MUSIC_PRESETS: Array<{ id: string; title: string; artist: string; notes: number[] }> = [
+  { id: 'lofi-chill', title: 'Midnight Lo-Fi Chill', artist: 'Chatterbox Synth', notes: [261.63, 329.63, 392.0, 493.88] },
+  { id: 'cyber-synth', title: 'Neon Cyberwave', artist: 'Chatterbox Synth', notes: [220.0, 261.63, 329.63, 440.0] },
+  { id: 'sakura-piano', title: 'Sakura Breeze', artist: 'Chatterbox Synth', notes: [293.66, 349.23, 440.0, 523.25] },
+  { id: 'midnight-ambient', title: 'Deep Space Drift', artist: 'Chatterbox Synth', notes: [196.0, 246.94, 293.66, 392.0] },
+  { id: 'gaming-arcade', title: '8-Bit Victory Loop', artist: 'Chatterbox Synth', notes: [329.63, 392.0, 523.25, 659.25] },
+];
+
+export const INTEREST_SUGGESTIONS = [
+  'Minecraft', 'Gaming', 'Coding', 'Anime', 'Music', 'Cricket',
+  'Photography', 'Design', 'Movies', 'Football', 'Tech', 'Travel',
+];
+
+export function getAvatarFrameClass(frame?: string): string {
+  return AVATAR_FRAMES.find((f) => f.id === frame)?.cls || '';
+}
+
+export function getProfileEffectClass(effect?: string): string {
+  return PROFILE_EFFECTS.find((e) => e.id === effect)?.cls || '';
+}
+
+export const ProfileEffectOverlay: React.FC<{ effect?: string }> = ({ effect }) => {
+  const cls = getProfileEffectClass(effect);
+  if (!cls) return null;
+  return <div className={`pointer-events-none absolute inset-0 ${cls}`} />;
+};
+
+export const ProfileMusicPill: React.FC<{
+  title?: string;
+  artist?: string;
+  preset?: string;
+  audioUrl?: string | null;
+}> = ({ title, artist, preset, audioUrl }) => {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+
+  const presetObj = MUSIC_PRESETS.find((p) => p.id === preset);
+  const displayTitle = title || presetObj?.title || '';
+  const displayArtist = artist || presetObj?.artist || '';
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (timerRef.current) window.clearInterval(timerRef.current);
+      if (ctxRef.current) ctxRef.current.close().catch(() => {});
+    };
+  }, []);
+
+  if (!audioUrl && !presetObj) return null;
+
+  function stopPlayback() {
+    setPlaying(false);
+    if (audioRef.current) audioRef.current.pause();
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (ctxRef.current) {
+      ctxRef.current.close().catch(() => {});
+      ctxRef.current = null;
+    }
+  }
+
+  function togglePlay() {
+    if (playing) {
+      stopPlayback();
+      return;
+    }
+    if (audioUrl) {
+      if (!audioRef.current) {
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.loop = true;
+      }
+      audioRef.current.play().then(() => setPlaying(true)).catch(() => {});
+      return;
+    }
+    if (presetObj) {
+      try {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new AudioCtx();
+        ctxRef.current = ctx;
+        let step = 0;
+        const playNote = () => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = presetObj.id === 'gaming-arcade' ? 'triangle' : 'sine';
+          osc.frequency.value = presetObj.notes[step % presetObj.notes.length];
+          gain.gain.setValueAtTime(0.001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.75);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.8);
+          step++;
+        };
+        playNote();
+        timerRef.current = window.setInterval(playNote, 850);
+        setPlaying(true);
+      } catch {
+        setPlaying(false);
+      }
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={togglePlay}
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-cbox-accent/40 bg-cbox-accent/10 hover:bg-cbox-accent/20 text-xs transition"
+    >
+      <span className="h-5 w-5 rounded-full bg-cbox-accent text-slate-950 flex items-center justify-center">
+        {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
+      </span>
+      <Music className={`h-3.5 w-3.5 text-cbox-accent ${playing ? 'animate-bounce' : ''}`} />
+      <span className="font-semibold text-cbox-text truncate max-w-[160px]">{displayTitle}</span>
+      {displayArtist && <span className="text-[11px] text-cbox-muted hidden sm:inline">· {displayArtist}</span>}
+    </button>
+  );
+};
+
+export const ProfileBadgeShelf: React.FC<{ badges?: ProfileBadgeItem[] }> = ({ badges }) => {
+  if (!badges || badges.length === 0) return null;
+  const toneCls: Record<ProfileBadgeItem['tone'], string> = {
+    dev: 'bg-gradient-to-r from-fuchsia-600 via-cyan-500 to-violet-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]',
+    verified: 'bg-sky-500/15 text-sky-400 border border-sky-400/40',
+    gold: 'bg-amber-500/15 text-amber-400 border border-amber-400/40',
+    violet: 'bg-violet-500/15 text-violet-400 border border-violet-400/40',
+    emerald: 'bg-emerald-500/15 text-emerald-400 border border-emerald-400/40',
+    sky: 'bg-cyan-500/15 text-cyan-400 border border-cyan-400/40',
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+      {badges.map((b) => (
+        <span
+          key={b.id}
+          title={b.description}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${toneCls[b.tone]}`}
+        >
+          <span>{b.emoji}</span>
+          <span>{b.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// Deterministic compact visual QR pattern + downloadable Share Card Modal
+export const ProfileShareCardModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  user: SafeUser;
+}> = ({ open, onClose, user }) => {
+  const [copied, setCopied] = useState(false);
+  const shareUrl = `${window.location.origin}/?u=${encodeURIComponent(user.username)}`;
+
+  // Generate a crisp 21x21 QR-style matrix with standard 3 finder patterns + deterministic data bits
+  const size = 21;
+  const cells: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
+  const drawFinder = (r0: number, c0: number) => {
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        const border = r === 0 || r === 6 || c === 0 || c === 6;
+        const center = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        cells[r0 + r][c0 + c] = border || center;
+      }
+    }
+  };
+  drawFinder(0, 0);
+  drawFinder(0, size - 7);
+  drawFinder(size - 7, 0);
+  let seed = 0;
+  for (let i = 0; i < shareUrl.length; i++) seed = (seed * 31 + shareUrl.charCodeAt(i)) >>> 0;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const inFinder = (r < 8 && c < 8) || (r < 8 && c >= size - 8) || (r >= size - 8 && c < 8);
+      if (!inFinder) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        cells[r][c] = (seed & 1) === 1;
+      }
+    }
+  }
+
+  function handleCopyLink() {
+    navigator.clipboard?.writeText(shareUrl).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  function handleDownloadCard() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const grad = ctx.createLinearGradient(0, 0, 640, 360);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(0.5, '#1e1b4b');
+    grad.addColorStop(1, '#312e81');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 640, 360);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('CHATTERBOX PROFILE CARD', 36, 48);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 34px sans-serif';
+    ctx.fillText(user.primaryNickname.slice(0, 22), 36, 118);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(`@${user.username}`, 36, 152);
+
+    if (user.customStatusText) {
+      ctx.fillStyle = '#f472b6';
+      ctx.font = '16px sans-serif';
+      ctx.fillText(`${user.customStatusEmoji || ''} ${user.customStatusText}`.slice(0, 38), 36, 192);
+    }
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '15px sans-serif';
+    ctx.fillText((user.bio || 'Connect with me on Chatterbox!').slice(0, 44), 36, 238);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = '13px monospace';
+    ctx.fillText(shareUrl.slice(0, 48), 36, 318);
+
+    // Draw QR box on right
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(430, 82, 174, 174);
+    ctx.fillStyle = '#0f172a';
+    const cellPx = 7;
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (cells[r][c]) {
+          ctx.fillRect(443 + c * cellPx, 95 + r * cellPx, cellPx, cellPx);
+        }
+      }
+    }
+
+    const link = document.createElement('a');
+    link.download = `chatterbox-${user.username}-card.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Share Profile & QR Card" maxWidthClass="max-w-md">
+      <div className="space-y-4">
+        <div className="rounded-2xl p-5 bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-950 border border-white/15 text-white flex flex-col items-center text-center gap-3">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-400">Chatterbox ID Card</span>
+          <div>
+            <p className="text-lg font-bold">{user.primaryNickname}</p>
+            <p className="text-xs text-slate-300">@{user.username}</p>
+          </div>
+          <div className="p-3 bg-white rounded-2xl shadow-lg">
+            <svg width="147" height="147" viewBox={`0 0 ${size} ${size}`} shapeRendering="crispEdges">
+              <rect width={size} height={size} fill="#ffffff" />
+              {cells.map((row, r) =>
+                row.map((on, c) => (on ? <rect key={`${r}-${c}`} x={c} y={r} width={1} height={1} fill="#0f172a" /> : null))
+              )}
+            </svg>
+          </div>
+          <p className="text-[11px] text-slate-300 break-all">{shareUrl}</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-cbox-elevated border border-cbox-border text-xs font-bold text-cbox-text hover:border-cbox-accent"
+          >
+            {copied ? <Check className="h-4 w-4 text-cbox-success" /> : <Copy className="h-4 w-4" />}
+            {copied ? 'Link Copied!' : 'Copy Profile Link'}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadCard}
+            className="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-cbox-accent text-slate-950 text-xs font-bold"
+          >
+            <Download className="h-4 w-4" />
+            Download Card
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 };

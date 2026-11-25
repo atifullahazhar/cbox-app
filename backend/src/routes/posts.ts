@@ -25,6 +25,7 @@ function serializePost(post: any, viewerId: string) {
     id: post.id,
     caption: post.caption,
     audience: post.audience,
+    isPinned: Boolean(post.isPinned),
     imageUrl: `/api/media/${post.mediaId}`,
     mediaId: post.mediaId,
     isOwner: post.authorId === viewerId,
@@ -50,13 +51,15 @@ const postInclude = (viewerId: string) => ({
 
 postsRouter.get('/feed', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
-  const [friendIds, blockedIds] = await Promise.all([
+  const [friendIds, blockedIds, closeFriendOfRows] = await Promise.all([
     getFriendIds(viewerId),
     getBlockedUserIds(viewerId),
+    prisma.closeFriend.findMany({ where: { friendId: viewerId }, select: { userId: true } }),
   ]);
 
   const blockedArray = Array.from(blockedIds);
   const allowedFriendIds = friendIds.filter((id) => !blockedIds.has(id));
+  const closeFriendAuthorIds = closeFriendOfRows.map((r) => r.userId).filter((id) => !blockedIds.has(id));
 
   const posts = await prisma.post.findMany({
     where: {
@@ -68,6 +71,10 @@ postsRouter.get('/feed', async (req: AuthenticatedRequest, res) => {
         {
           audience: PostAudience.FRIENDS_ONLY,
           authorId: { in: allowedFriendIds },
+        },
+        {
+          audience: PostAudience.CLOSE_FRIENDS,
+          authorId: { in: closeFriendAuthorIds },
         },
       ],
     },
@@ -84,7 +91,7 @@ postsRouter.get('/mine', async (req: AuthenticatedRequest, res) => {
   const posts = await prisma.post.findMany({
     where: { authorId: viewerId, deletedAt: null },
     include: postInclude(viewerId),
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
     take: 50,
   });
 
@@ -335,4 +342,27 @@ postsRouter.delete('/comments/:commentId', async (req: AuthenticatedRequest, res
   });
 
   res.json({ ok: true });
+});
+
+postsRouter.patch('/:id/pin', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  if (!post || post.deletedAt !== null || post.authorId !== viewerId) {
+    res.status(404).json({ error: 'Post not found.' });
+    return;
+  }
+  const nextPinned = !post.isPinned;
+  if (nextPinned) {
+    const pinnedCount = await prisma.post.count({ where: { authorId: viewerId, deletedAt: null, isPinned: true } });
+    if (pinnedCount >= 3) {
+      res.status(400).json({ error: 'You can pin up to 3 posts on your profile.' });
+      return;
+    }
+  }
+  const updated = await prisma.post.update({
+    where: { id: post.id },
+    data: { isPinned: nextPinned },
+    include: postInclude(viewerId),
+  });
+  res.json({ post: serializePost(updated, viewerId) });
 });

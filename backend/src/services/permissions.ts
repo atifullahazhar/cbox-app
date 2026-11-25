@@ -67,6 +67,13 @@ export async function canViewPost(viewerId: string, post: {
   if (blockState.anyBlock) return false;
 
   if (post.audience === PostAudience.PUBLIC) return true;
+  if (post.audience === PostAudience.CLOSE_FRIENDS) {
+    const cf = await prisma.closeFriend.findUnique({
+      where: { userId_friendId: { userId: post.authorId, friendId: viewerId } },
+      select: { id: true },
+    });
+    return Boolean(cf);
+  }
   return areFriends(viewerId, post.authorId);
 }
 
@@ -76,13 +83,20 @@ export async function canViewStory(viewerId: string, story: {
   expiresAt: Date;
   deletedAt: Date | null;
 }): Promise<boolean> {
-  if (story.deletedAt !== null || story.expiresAt <= new Date()) return false;
+  if (story.deletedAt !== null) return false;
   if (story.authorId === viewerId) return true;
 
   const blockState = await getBlockState(viewerId, story.authorId);
   if (blockState.anyBlock) return false;
 
   if (story.audience === PostAudience.PUBLIC) return true;
+  if (story.audience === PostAudience.CLOSE_FRIENDS) {
+    const cf = await prisma.closeFriend.findUnique({
+      where: { userId_friendId: { userId: story.authorId, friendId: viewerId } },
+      select: { id: true },
+    });
+    return Boolean(cf);
+  }
   return areFriends(viewerId, story.authorId);
 }
 
