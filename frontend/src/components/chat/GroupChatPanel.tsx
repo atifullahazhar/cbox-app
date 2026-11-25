@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Users,
   Plus,
@@ -8,6 +8,7 @@ import {
   LogOut,
   ArrowLeft,
   Copy,
+  MessageSquare,
 } from 'lucide-react';
 import type { FriendListItem, GroupMessageItem, GroupPollItem, GroupSummary } from '../../types';
 import { apiFetch } from '../../lib/api';
@@ -39,6 +40,8 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
   const [messages, setMessages] = useState<GroupMessageItem[]>([]);
   const [polls, setPolls] = useState<GroupPollItem[]>([]);
   const [msgText, setMsgText] = useState('');
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Create group modal
   const [createOpen, setCreateOpen] = useState(false);
@@ -64,6 +67,10 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
   useEffect(() => {
     loadGroups();
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, activeGroup?.id]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -144,16 +151,25 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
 
   async function handleSendGroupMsg(e: React.FormEvent) {
     e.preventDefault();
-    if (!activeGroup || !msgText.trim()) return;
+    if (!activeGroup || !msgText.trim() || sending) return;
     const text = msgText.trim();
     setMsgText('');
+    setSending(true);
     try {
-      await apiFetch(`/api/groups/${activeGroup.id}/messages`, {
+      const res = await apiFetch<{ message?: GroupMessageItem }>(`/api/groups/${activeGroup.id}/messages`, {
         method: 'POST',
         body: JSON.stringify({ content: text }),
       });
+      if (res.message) {
+        const sent = res.message;
+        setMessages((prev) => (prev.some((m) => m.id === sent.id) ? prev : [...prev, sent]));
+      }
+      loadGroups();
     } catch (err) {
+      setMsgText(text);
       onNotify(err instanceof Error ? err.message : 'Failed to send message.', 'error');
+    } finally {
+      setSending(false);
     }
   }
 
@@ -166,10 +182,14 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
       return;
     }
     try {
-      await apiFetch(`/api/groups/${activeGroup.id}/polls`, {
+      const res = await apiFetch<{ poll?: GroupPollItem }>(`/api/groups/${activeGroup.id}/polls`, {
         method: 'POST',
         body: JSON.stringify({ question: pollQuestion, options: cleanOpts }),
       });
+      if (res.poll) {
+        const created = res.poll;
+        setPolls((prev) => (prev.some((p) => p.id === created.id) ? prev : [created, ...prev]));
+      }
       setPollOpen(false);
       setPollQuestion('');
       setPollOptions(['', '']);
@@ -181,21 +201,26 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
 
   async function handleVote(pollId: string, optionIndex: number) {
     try {
-      await apiFetch(`/api/groups/polls/${pollId}/vote`, {
+      const res = await apiFetch<{ poll?: GroupPollItem }>(`/api/groups/polls/${pollId}/vote`, {
         method: 'POST',
         body: JSON.stringify({ optionIndex }),
       });
+      if (res.poll) {
+        const updated = res.poll;
+        setPolls((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      }
     } catch {}
   }
 
   if (activeGroup) {
     return (
-      <section className="flex flex-col h-[calc(100dvh-11rem)] md:h-[calc(100dvh-5rem)] rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft animate-fade-slide">
-        <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-cbox-border">
-          <div className="flex items-center gap-2.5 min-w-0">
+      <section className="fixed inset-x-0 top-[57px] bottom-[64px] z-20 flex flex-col bg-cbox-surface border-t border-cbox-border md:static md:z-auto md:h-[calc(100dvh-12rem)] md:min-h-[480px] md:rounded-2xl md:border overflow-hidden shadow-soft animate-fade-slide">
+        <header className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 border-b border-cbox-border bg-cbox-surface">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={() => setActiveGroup(null)}
+              aria-label="Back to groups"
               className="p-2 rounded-xl hover:bg-cbox-elevated text-cbox-muted"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -203,7 +228,7 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
             <div className="min-w-0">
               <h2 className="text-sm font-bold text-cbox-text truncate">{activeGroup.name}</h2>
               <p className="text-[11px] text-cbox-muted truncate">
-                {activeGroup.memberCount} members · Role: {activeGroup.myRole}
+                {activeGroup.memberCount} member{activeGroup.memberCount === 1 ? '' : 's'} · {activeGroup.myRole}
               </p>
             </div>
           </div>
@@ -243,7 +268,7 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-cbox-bg/40">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-cbox-bg/40">
           {/* Active Polls */}
           {polls.map((poll) => (
             <div
@@ -284,6 +309,19 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
             </div>
           ))}
 
+          {/* Friendly empty state when no messages yet */}
+          {messages.length === 0 && polls.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-center py-10 px-4 space-y-2">
+              <div className="h-11 w-11 rounded-2xl bg-cbox-accent/15 text-cbox-accent flex items-center justify-center">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-semibold text-cbox-text">Welcome to {activeGroup.name}</p>
+              <p className="text-xs text-cbox-muted max-w-xs">
+                Send the first message below, share invite code <strong className="font-mono text-cbox-text">{activeGroup.inviteCode}</strong>, or tap Poll to start a vote.
+              </p>
+            </div>
+          )}
+
           {/* Group Messages */}
           {messages.map((m) => (
             <div key={m.id} className="flex items-start gap-2.5">
@@ -299,20 +337,22 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSendGroupMsg} className="flex gap-2 p-3 border-t border-cbox-border bg-cbox-surface">
+        <form onSubmit={handleSendGroupMsg} className="shrink-0 flex items-center gap-2 p-3 border-t border-cbox-border bg-cbox-surface">
           <input
             type="text"
             value={msgText}
             onChange={(e) => setMsgText(e.target.value)}
             placeholder="Message group… (use @username to mention)"
-            className="flex-1 rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+            className="flex-1 min-w-0 rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
           />
           <button
             type="submit"
-            disabled={!msgText.trim()}
-            className="h-10 w-10 rounded-xl bg-cbox-accent text-slate-950 flex items-center justify-center disabled:opacity-40"
+            disabled={!msgText.trim() || sending}
+            aria-label="Send group message"
+            className="h-10 w-10 shrink-0 rounded-xl bg-cbox-accent text-slate-950 flex items-center justify-center disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
           </button>

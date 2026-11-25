@@ -315,7 +315,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
               <Terminal className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-cbox-text">Chatterbox CB1.1 · Developer Control</h1>
+              <h1 className="text-xl font-bold text-cbox-text">Chatterbox CB1.2 · Developer Control</h1>
               <p className="text-xs text-cbox-muted">
                 Admin command center for @{data.account.username} · Private 1:1 DMs remain strictly isolated
               </p>
