@@ -214,7 +214,7 @@ export const GroupChatPanel: React.FC<GroupChatPanelProps> = ({ friends, onNotif
 
   if (activeGroup) {
     return (
-      <section className="fixed inset-x-0 top-[57px] bottom-[64px] z-20 flex flex-col bg-cbox-surface border-t border-cbox-border md:static md:z-auto md:h-[calc(100dvh-12rem)] md:min-h-[480px] md:rounded-2xl md:border overflow-hidden shadow-soft animate-fade-slide">
+      <section className="flex flex-col h-[calc(100dvh-18rem)] min-h-[340px] md:h-[calc(100dvh-11rem)] md:min-h-[480px] rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft">
         <header className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 border-b border-cbox-border bg-cbox-surface">
           <div className="flex items-center gap-2 min-w-0">
             <button
