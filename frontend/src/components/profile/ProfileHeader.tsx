@@ -1,3 +1,4 @@
+import { RankBadges } from '../ui/RankBadge';
 import React from 'react';
 import { Settings, Camera, ShieldCheck } from 'lucide-react';
 import type { ProfileStats, SafeUser } from '../../types';

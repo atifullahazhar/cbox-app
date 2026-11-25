@@ -77,7 +77,7 @@ developerRouter.get('/status', async (req: AuthenticatedRequest, res) => {
     prisma.user.count(),
     prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: new Date() } } }),
     prisma.post.count({ where: { deletedAt: null } }),
-    prisma.event.count(),
+    prisma.community.count(),
     prisma.group.count(),
     prisma.safetyReport.count({ where: { status: 'OPEN' } }),
     prisma.mediaAsset.aggregate({ _sum: { byteSize: true }, _count: { id: true } }),

@@ -25,6 +25,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
@@ -152,7 +153,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
         onChange={handlePhotoPicked}
         className="hidden"
       />

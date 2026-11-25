@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type {
   ChatMessage,
+  ChatRequestItem,
   FriendListItem,
   FriendRequestItem,
   LookupResult,
@@ -28,6 +29,7 @@ import { RequestCard } from '../components/chat/RequestCard';
 import { ChatBubble } from '../components/chat/ChatBubble';
 import { MessageComposer } from '../components/chat/MessageComposer';
 import { GroupChatPanel } from '../components/chat/GroupChatPanel';
+import { CHAT_WALLPAPERS, RankBadges, getWallpaperClass } from '../components/ui/RankBadge';
 import { UserProfileModal } from '../components/profile/UserProfileModal';
 import { ReportModal } from '../components/ui/ReportModal';
 import { Avatar } from '../components/ui/Avatar';
@@ -74,6 +76,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [activeFriend, setActiveFriend] = useState<FriendListItem | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const [chatWallpaper, setChatWallpaper] = useState('default');
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
+  const [incomingChatReqs, setIncomingChatReqs] = useState<ChatRequestItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -509,7 +514,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           >
             <Avatar src={activeFriend.friend.avatarUrl} name={activeFriend.friend.primaryNickname} size="md" online={activeFriend.online} />
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-cbox-text truncate">{activeFriend.friend.primaryNickname}</h2>
+              <div className="flex items-center gap-1.5 flex-wrap"><h2 className="text-sm font-semibold text-cbox-text truncate">{activeFriend.friend.primaryNickname}</h2><RankBadges userRole={activeFriend.friend.role} isVerified={activeFriend.friend.isVerified} /></div>
               <p className="text-xs text-cbox-muted truncate">
                 {friendTyping ? <span className="text-cbox-accent font-medium">typing…</span> : `@${activeFriend.friend.username}`}
               </p>
@@ -536,6 +541,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             <Video className="h-4 w-4" />
           </button>
 
+          <button type="button" onClick={() => setWallpaperOpen(true)} title="Chat Wallpaper" className="px-2 py-1.5 rounded-xl bg-cbox-elevated border border-cbox-border text-[11px] font-semibold text-cbox-accent">BG</button>
           <label className="inline-flex items-center gap-1 px-2 py-1.5 rounded-xl bg-cbox-elevated border border-cbox-border text-[11px] text-cbox-muted">
             <Timer className="h-3.5 w-3.5 text-cbox-violet" />
             <select
@@ -748,7 +754,71 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
       <div className={activeFriend ? 'block' : 'hidden lg:block'}>{conversationPanel}</div>
 
-      <UserProfileModal username={profileUsername} onClose={() => setProfileUsername(null)} />
+      {incomingChatReqs.length > 0 && (
+        <div className="fixed bottom-20 right-4 z-30 max-w-xs w-full rounded-2xl border border-cbox-violet/40 bg-cbox-surface shadow-2xl p-3 space-y-2">
+          <p className="text-xs font-bold text-cbox-violet">Incoming Chat Requests ({incomingChatReqs.length})</p>
+          {incomingChatReqs.map((cr) => (
+            <div key={cr.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-semibold text-cbox-text">@{cr.user.username}</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await apiFetch(`/api/chat/requests/${cr.id}/accept`, { method: 'POST' });
+                    setIncomingChatReqs((p) => p.filter((x) => x.id !== cr.id));
+                    onNotify(`Chat accepted with @${cr.user.username}!`, 'success');
+                    refreshHub();
+                  }}
+                  className="px-2 py-1 rounded-lg bg-cbox-success text-slate-950 font-bold"
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await apiFetch(`/api/chat/requests/${cr.id}/deny`, { method: 'POST' });
+                    setIncomingChatReqs((p) => p.filter((x) => x.id !== cr.id));
+                    onNotify('Chat request denied (24h cooldown active).', 'info');
+                  }}
+                  className="px-2 py-1 rounded-lg bg-cbox-danger/15 text-cbox-danger font-bold"
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={wallpaperOpen} onClose={() => setWallpaperOpen(false)} title="1:1 Chat Background">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {CHAT_WALLPAPERS.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={async () => {
+                setChatWallpaper(w.id);
+                setWallpaperOpen(false);
+                if (activeConversationId) {
+                  await apiFetch(`/api/chat/conversations/${activeConversationId}/wallpaper`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ wallpaper: w.id }),
+                  }).catch(() => {});
+                }
+                onNotify('Chat background updated!', 'success');
+              }}
+              className={`p-2 rounded-xl border text-center space-y-1.5 ${
+                chatWallpaper === w.id ? 'border-cbox-accent ring-1 ring-cbox-accent' : 'border-cbox-border'
+              }`}
+            >
+              <div className="h-10 rounded-lg" style={{ background: w.preview }} />
+              <p className="text-[11px] font-semibold text-cbox-text">{w.name}</p>
+            </button>
+          ))}
+        </div>
+      </Modal>
+
+      <UserProfileModal username={profileUsername} onClose={() => setProfileUsername(null)} onNotify={onNotify} />
 
       <Modal open={pinModalOpen} onClose={() => setPinModalOpen(false)} title="Unlock Secret Vault" maxWidthClass="max-w-sm">
         <form onSubmit={handleUnlockVault} className="space-y-4">

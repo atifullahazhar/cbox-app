@@ -107,8 +107,21 @@ export async function canViewMedia(viewerId: string, mediaId: string): Promise<b
     return canViewStory(viewerId, asset.story);
   }
 
-  if (asset.purpose === 'CHAT_IMAGE' || asset.purpose === 'CHAT_AUDIO') {
-    if (!asset.message) return asset.ownerId === viewerId;
+  if (asset.purpose === 'CHAT_IMAGE' || asset.purpose === 'CHAT_AUDIO' || asset.purpose === 'CHAT_VIDEO') {
+    if (!asset.message) {
+      // Group or Community media asset (no 1:1 message relation)
+      const grpMsg = await prisma.groupMessage.findFirst({ where: { mediaId: asset.id }, select: { groupId: true } });
+      if (grpMsg) {
+        const mem = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: grpMsg.groupId, userId: viewerId } } });
+        return Boolean(mem);
+      }
+      const commMsg = await prisma.communityMessage.findFirst({ where: { mediaId: asset.id }, include: { channel: { select: { communityId: true } } } });
+      if (commMsg) {
+        const mem = await prisma.communityMember.findUnique({ where: { communityId_userId: { communityId: commMsg.channel.communityId, userId: viewerId } } });
+        return Boolean(mem);
+      }
+      return asset.ownerId === viewerId;
+    }
     if (asset.message.deletedAt !== null) return false;
     const conv = asset.message.conversation;
     if (conv.userAId !== viewerId && conv.userBId !== viewerId) return false;

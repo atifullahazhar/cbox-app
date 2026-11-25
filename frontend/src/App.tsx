@@ -14,7 +14,7 @@ import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ChatScreen } from './screens/ChatScreen';
 import { PostsScreen } from './screens/PostsScreen';
-import { EventsScreen } from './screens/EventsScreen';
+import { CommunitiesScreen } from './screens/CommunitiesScreen';
 import { DeveloperSpaceScreen } from './screens/DeveloperSpaceScreen';
 
 export const App: React.FC = () => {
@@ -26,7 +26,7 @@ export const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
-  const [announcement, setAnnouncement] = useState<string>("");
+  const [announcement, setAnnouncement] = useState<string>('');
 
   const isOnline = useOnlineStatus();
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
@@ -39,7 +39,7 @@ export const App: React.FC = () => {
   useThemeSync(activeThemeKey);
 
   useEffect(() => {
-    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox` : 'Chatterbox — Private Social Chat';
+    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox CB2.0` : 'Chatterbox CB2.0 — Social Chat & Communities';
   }, [chatBadgeCount]);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -69,7 +69,6 @@ export const App: React.FC = () => {
     return () => disconnectSocket();
   }, [refreshMe]);
 
-  // Global listener for incoming WebRTC 1:1 Voice / Video Calls
   useEffect(() => {
     if (!user) return;
     const socket = getSocket();
@@ -83,7 +82,7 @@ export const App: React.FC = () => {
       callerUsername: string;
     }) => {
       setActiveCall((prev) => {
-        if (prev) return prev; // Busy in another call
+        if (prev) return prev;
         return {
           peerUserId: data.fromUserId,
           peerName: data.callerName,
@@ -102,9 +101,12 @@ export const App: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user) { setAnnouncement(""); return; }
-    apiFetch<{ announcement: string }>("/api/developer/public-state")
-      .then((res) => setAnnouncement(res.announcement || ""))
+    if (!user) {
+      setAnnouncement('');
+      return;
+    }
+    apiFetch<{ announcement: string }>('/api/developer/public-state')
+      .then((res) => setAnnouncement(res.announcement || ''))
       .catch(() => {});
   }, [user?.id, activeNav]);
 
@@ -226,7 +228,7 @@ export const App: React.FC = () => {
 
             {activeNav === 'posts' && <PostsScreen onStatsChanged={refreshMe} onNotify={notify} />}
 
-            {activeNav === 'events' && <EventsScreen currentUser={user} onNotify={notify} />}
+            {activeNav === 'communities' && <CommunitiesScreen currentUser={user} onNotify={notify} />}
 
             {activeNav === 'developer' && user.role === 'DEVELOPER' && <DeveloperSpaceScreen />}
           </AppShell>

@@ -14,7 +14,7 @@ import { profileRouter } from './routes/profile.js';
 import { friendsRouter } from './routes/friends.js';
 import { chatRouter } from './routes/chat.js';
 import { groupsRouter } from './routes/groups.js';
-import { eventsRouter } from './routes/events.js';
+import { communitiesRouter } from './routes/communities.js';
 import { postsRouter } from './routes/posts.js';
 import { storiesRouter } from './routes/stories.js';
 import { mediaRouter } from './routes/media.js';
@@ -44,9 +44,8 @@ app.use('/api', generalApiLimiter);
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'chatterbox-backend',
-    version: '4.0.0',
-    pythonAuthEngine: true,
+    service: 'chatterbox-cb2',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
   });
 });
@@ -56,7 +55,7 @@ app.use('/api/profile', profileRouter);
 app.use('/api/friends', friendsRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/groups', groupsRouter);
-app.use('/api/events', eventsRouter);
+app.use('/api/communities', communitiesRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/stories', storiesRouter);
 app.use('/api/media', mediaRouter);
@@ -86,10 +85,10 @@ if (env.serveFrontend) {
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err && typeof err === 'object' && 'code' in err && (err as any).code === 'LIMIT_FILE_SIZE') {
-    res.status(413).json({ error: `Uploaded file is too large (max ${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).` });
+    res.status(413).json({ error: 'Uploaded file is too large (max 10 MB).' });
     return;
   }
-  console.error('[Chatterbox Server Error]', err instanceof Error ? err.message : 'Unknown error');
+  console.error('[Chatterbox CB2.0 Server Error]', err instanceof Error ? err.message : 'Unknown error');
   res.status(500).json({ error: 'An unexpected server error occurred.' });
 });
 
@@ -97,5 +96,5 @@ const httpServer = http.createServer(app);
 attachSocketServer(httpServer);
 
 httpServer.listen(env.port, () => {
-  console.log(`[Chatterbox v4] Listening on port ${env.port} (${env.nodeEnv})`);
+  console.log(`[Chatterbox CB2.0] Listening on port ${env.port} (${env.nodeEnv})`);
 });

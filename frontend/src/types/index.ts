@@ -1,9 +1,10 @@
-import type { ThemeKey } from '../lib/themes';
+import type { ThemeKey } from '../themes';
 
 export type UserRole = 'USER' | 'DEVELOPER';
+export type GroupRank = 'OWNER' | 'ADMIN' | 'VICE_ADMIN' | 'MEMBER';
 export type ThemePreference = 'SYSTEM' | 'LIGHT' | 'DARK';
 export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC';
-export type NavSection = 'profile' | 'chat' | 'posts' | 'events' | 'developer';
+export type NavSection = 'profile' | 'chat' | 'posts' | 'communities' | 'developer';
 
 export interface SafeUser {
   id: string;
@@ -16,6 +17,7 @@ export interface SafeUser {
   bannerUrl: string | null;
   dateOfBirth?: string | null;
   isPrivateProfile?: boolean;
+  isVerified?: boolean;
   phoneMasked?: string | null;
   hasSecretPin?: boolean;
   totpEnabled?: boolean;
@@ -28,19 +30,55 @@ export interface SafeUser {
   createdAt?: string;
 }
 
-export interface EventItem {
+export interface ChatRequestItem {
   id: string;
-  title: string;
-  category: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DENIED';
+  deniedAt?: string | null;
+  cooldownEndsAt?: string | null;
+  createdAt: string;
+  user: SafeUser;
+}
+
+export interface CommunitySummary {
+  id: string;
+  name: string;
   description: string;
-  location: string;
-  startsAt: string;
-  bgGradient: string;
-  goingCount: number;
-  interestedCount: number;
-  myStatus: 'GOING' | 'INTERESTED' | null;
-  isCreator: boolean;
-  creator: SafeUser;
+  iconEmoji: string;
+  bannerGradient: string;
+  isPublic: boolean;
+  inviteCode: string;
+  myRole: GroupRank | null;
+  memberCount: number;
+  channelCount: number;
+  createdAt: string;
+}
+
+export interface CommunityChannel {
+  id: string;
+  name: string;
+  type: 'TEXT' | 'VOICE';
+  topic: string;
+  readonlyForMembers: boolean;
+  slowModeSeconds: number;
+}
+
+export interface CommunityMember {
+  user: SafeUser;
+  role: GroupRank;
+  online: boolean;
+  joinedAt: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  communityId?: string;
+  channelId: string;
+  content: string;
+  mediaUrl?: string | null;
+  mediaKind?: 'IMAGE' | 'AUDIO' | 'VIDEO' | null;
+  isPinned?: boolean;
+  senderRole: GroupRank;
+  sender: SafeUser;
   createdAt: string;
 }
 
@@ -99,7 +137,7 @@ export interface ChatMessage {
   clientTempId?: string | null;
   content: string;
   mediaUrl?: string | null;
-  mediaKind?: 'IMAGE' | 'AUDIO' | null;
+  mediaKind?: 'IMAGE' | 'AUDIO' | 'VIDEO' | null;
   replyTo?: {
     id: string;
     senderId: string;
@@ -118,7 +156,8 @@ export interface GroupSummary {
   name: string;
   description: string;
   inviteCode: string;
-  myRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+  wallpaper?: string;
+  myRole: GroupRank;
   memberCount: number;
   lastMessage: {
     id: string;
@@ -128,10 +167,19 @@ export interface GroupSummary {
   } | null;
 }
 
+export interface GroupMemberItem {
+  role: GroupRank;
+  joinedAt: string;
+  user: SafeUser;
+}
+
 export interface GroupMessageItem {
   id: string;
   groupId: string;
   content: string;
+  mediaUrl?: string | null;
+  mediaKind?: 'IMAGE' | 'AUDIO' | 'VIDEO' | null;
+  senderRole?: GroupRank;
   createdAt: string;
   sender: SafeUser;
 }

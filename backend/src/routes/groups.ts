@@ -2,7 +2,11 @@ import { assertSafeText } from '../services/moderation.js';
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { GroupRole } from '@prisma/client';
+import multer from 'multer';
+import { GroupRole, MediaPurpose } from '@prisma/client';
+import { env } from '../config/env.js';
+import { uploadLimiter } from '../middleware/rateLimits.js';
+import { processAndStoreAudio, processAndStoreImage, processAndStoreVideo } from '../services/storage.js';
 import { prisma } from '../db/prisma.js';
 import { type AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
 import { toPublicUserDTO } from '../utils/security.js';
@@ -10,6 +14,7 @@ import { emitToUser } from '../realtime/socket.js';
 
 export const groupsRouter = Router();
 groupsRouter.use(requireAuth);
+const groupUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Math.max(env.maxUploadBytes, 10 * 1024 * 1024), files: 1 } });
 
 function makeInviteCode(): string {
   return crypto.randomBytes(6).toString('hex');
@@ -188,6 +193,7 @@ groupsRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
       name: group.name,
       description: group.description,
       inviteCode: group.inviteCode,
+      wallpaper: group.wallpaper || 'default',
       myRole: membership.role,
     },
     members: group.members.map((m) => ({
@@ -195,13 +201,19 @@ groupsRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
       joinedAt: m.joinedAt.toISOString(),
       user: toPublicUserDTO(m.user),
     })),
-    messages: group.messages.map((msg) => ({
-      id: msg.id,
-      groupId: msg.groupId,
-      content: msg.content,
-      createdAt: msg.createdAt.toISOString(),
-      sender: toPublicUserDTO(msg.sender),
-    })),
+    messages: group.messages.map((msg) => {
+      const senderMem = group.members.find((m) => m.userId === msg.senderId);
+      return {
+        id: msg.id,
+        groupId: msg.groupId,
+        content: msg.content,
+        mediaUrl: msg.mediaId ? `/api/media/${msg.mediaId}` : null,
+        mediaKind: msg.mediaKind ?? null,
+        senderRole: senderMem ? senderMem.role : 'MEMBER',
+        createdAt: msg.createdAt.toISOString(),
+        sender: toPublicUserDTO(msg.sender),
+      };
+    }),
     polls: group.polls.map((p) => serializePoll(p, viewerId)),
   });
 });
@@ -219,7 +231,7 @@ groupsRouter.post('/:id/messages', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const members = await prisma.groupMember.findMany({
     where: { groupId: req.params.id },
-    select: { userId: true },
+    select: { userId: true, role: true },
   });
   if (!members.some((m) => m.userId === viewerId)) {
     res.status(403).json({ error: 'You are not a member of this group.' });
@@ -231,10 +243,14 @@ groupsRouter.post('/:id/messages', async (req: AuthenticatedRequest, res) => {
     include: { sender: true },
   });
 
+  const senderRole = members.find((m) => m.userId === viewerId)?.role || 'MEMBER';
   const dto = {
     id: created.id,
     groupId: created.groupId,
     content: created.content,
+    mediaUrl: null,
+    mediaKind: null,
+    senderRole,
     createdAt: created.createdAt.toISOString(),
     sender: toPublicUserDTO(created.sender),
   };
@@ -261,7 +277,7 @@ groupsRouter.post('/:id/polls', async (req: AuthenticatedRequest, res) => {
   const viewerId = req.auth!.user.id;
   const members = await prisma.groupMember.findMany({
     where: { groupId: req.params.id },
-    select: { userId: true },
+    select: { userId: true, role: true },
   });
   if (!members.some((m) => m.userId === viewerId)) {
     res.status(403).json({ error: 'You are not a member of this group.' });
@@ -335,4 +351,115 @@ groupsRouter.delete('/:id/leave', async (req: AuthenticatedRequest, res) => {
     where: { groupId: req.params.id, userId: req.auth!.user.id },
   });
   res.json({ ok: true });
+});
+
+
+// Promote / demote Group Member Role (OWNER can assign ADMIN / VICE_ADMIN / MEMBER)
+groupsRouter.patch('/:id/members/:userId/role', async (req: AuthenticatedRequest, res) => {
+  const viewerMem = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId: req.params.id, userId: req.auth!.user.id } },
+  });
+  if (!viewerMem || viewerMem.role !== GroupRole.OWNER) {
+    res.status(403).json({ error: 'Only the Group Owner can change member ranks.' });
+    return;
+  }
+  const schema = z.object({ role: z.enum(['ADMIN', 'VICE_ADMIN', 'MEMBER']) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid group rank.' });
+    return;
+  }
+  if (req.params.userId === req.auth!.user.id) {
+    res.status(400).json({ error: 'Owner cannot demote themselves.' });
+    return;
+  }
+  await prisma.groupMember.update({
+    where: { groupId_userId: { groupId: req.params.id, userId: req.params.userId } },
+    data: { role: parsed.data.role as GroupRole },
+  });
+  res.json({ ok: true, role: parsed.data.role });
+});
+
+// Update Group Chat Wallpaper
+groupsRouter.patch('/:id/wallpaper', async (req: AuthenticatedRequest, res) => {
+  const mem = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId: req.params.id, userId: req.auth!.user.id } },
+  });
+  if (!mem) {
+    res.status(403).json({ error: 'Not a group member.' });
+    return;
+  }
+  const schema = z.object({ wallpaper: z.string().min(1).max(64) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid wallpaper.' });
+    return;
+  }
+  await prisma.group.update({ where: { id: req.params.id }, data: { wallpaper: parsed.data.wallpaper } });
+  res.json({ ok: true, wallpaper: parsed.data.wallpaper });
+});
+
+// Send Photo / Video / Voice Note in a Group Chat
+groupsRouter.post('/:id/media', uploadLimiter, groupUpload.single('file'), async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const mem = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId: req.params.id, userId: viewerId } },
+  });
+  if (!mem) {
+    res.status(403).json({ error: 'Not a group member.' });
+    return;
+  }
+  if (!req.file) {
+    res.status(400).json({ error: 'Attach a photo, video, or audio file.' });
+    return;
+  }
+  const caption = typeof req.body?.caption === 'string' ? req.body.caption.trim().slice(0, 500) : '';
+  try {
+    if (caption) assertSafeText(caption);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Blocked by Safety Filter.' });
+    return;
+  }
+
+  try {
+    let mediaId: string;
+    let mediaKind: string;
+    if (req.file.mimetype.startsWith('video/')) {
+      const stored = await processAndStoreVideo({ buffer: req.file.buffer, declaredMimeType: req.file.mimetype, ownerId: viewerId, originalFilename: req.file.originalname });
+      const asset = await prisma.mediaAsset.create({ data: { ownerId: viewerId, purpose: MediaPurpose.CHAT_VIDEO, ...stored } });
+      mediaId = asset.id;
+      mediaKind = 'VIDEO';
+    } else if (req.file.mimetype.startsWith('audio/')) {
+      const stored = await processAndStoreAudio({ buffer: req.file.buffer, declaredMimeType: req.file.mimetype, ownerId: viewerId, originalFilename: req.file.originalname });
+      const asset = await prisma.mediaAsset.create({ data: { ownerId: viewerId, purpose: MediaPurpose.CHAT_AUDIO, ...stored } });
+      mediaId = asset.id;
+      mediaKind = 'AUDIO';
+    } else {
+      const stored = await processAndStoreImage({ buffer: req.file.buffer, declaredMimeType: req.file.mimetype, ownerId: viewerId, purpose: MediaPurpose.CHAT_IMAGE, originalFilename: req.file.originalname });
+      const asset = await prisma.mediaAsset.create({ data: { ownerId: viewerId, purpose: MediaPurpose.CHAT_IMAGE, ...stored } });
+      mediaId = asset.id;
+      mediaKind = 'IMAGE';
+    }
+
+    const msg = await prisma.groupMessage.create({
+      data: { groupId: req.params.id, senderId: viewerId, content: caption, mediaId, mediaKind },
+      include: { sender: true },
+    });
+
+    const payload = {
+      id: msg.id,
+      groupId: msg.groupId,
+      content: msg.content,
+      mediaUrl: `/api/media/${mediaId}`,
+      mediaKind,
+      senderRole: mem.role,
+      createdAt: msg.createdAt.toISOString(),
+      sender: toPublicUserDTO(msg.sender),
+    };
+    const members = await prisma.groupMember.findMany({ where: { groupId: req.params.id }, select: { userId: true } });
+    for (const m of members) emitToUser(m.userId, 'group:message:new', payload);
+    res.status(201).json({ message: payload });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Group media upload failed.' });
+  }
 });

@@ -10,14 +10,163 @@ import { uploadLimiter } from '../middleware/rateLimits.js';
 import { canonicalPair, toPublicUserDTO } from '../utils/security.js';
 import { areFriends, getBlockState } from '../services/permissions.js';
 import { emitToUser, isUserOnline } from '../realtime/socket.js';
-import { processAndStoreAudio, processAndStoreImage } from '../services/storage.js';
+import { processAndStoreAudio, processAndStoreImage, processAndStoreVideo } from '../services/storage.js';
 
 export const chatRouter = Router();
 chatRouter.use(requireAuth);
 
+// ===================== 2-STEP CHAT REQUESTS (24h COOLDOWN ON DENY) =====================
+chatRouter.get('/requests', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const [incoming, outgoing] = await Promise.all([
+    prisma.chatRequest.findMany({
+      where: { receiverId: viewerId, status: 'PENDING' },
+      include: { sender: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.chatRequest.findMany({
+      where: { senderId: viewerId, status: { in: ['PENDING', 'DENIED'] } },
+      include: { receiver: true },
+      orderBy: { updatedAt: 'desc' },
+    }),
+  ]);
+
+  res.json({
+    incoming: incoming.map((r) => ({
+      id: r.id,
+      status: r.status,
+      createdAt: r.createdAt.toISOString(),
+      user: toPublicUserDTO(r.sender),
+    })),
+    outgoing: outgoing.map((r) => ({
+      id: r.id,
+      status: r.status,
+      deniedAt: r.deniedAt ? r.deniedAt.toISOString() : null,
+      cooldownEndsAt: r.deniedAt ? new Date(r.deniedAt.getTime() + 24 * 60 * 60 * 1000).toISOString() : null,
+      createdAt: r.createdAt.toISOString(),
+      user: toPublicUserDTO(r.receiver),
+    })),
+  });
+});
+
+chatRouter.post('/requests', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ targetUserId: z.string().min(1) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Target user is required.' });
+    return;
+  }
+  const viewerId = req.auth!.user.id;
+  const targetId = parsed.data.targetUserId;
+  if (viewerId === targetId) {
+    res.status(400).json({ error: 'Cannot send a chat request to yourself.' });
+    return;
+  }
+  const block = await getBlockState(viewerId, targetId);
+  if (block.anyBlock) {
+    res.status(403).json({ error: 'Unable to send chat request to this user.' });
+    return;
+  }
+
+  const [uA, uB] = canonicalPair(viewerId, targetId);
+  const existingConv = await prisma.conversation.findUnique({ where: { userAId_userBId: { userAId: uA, userBId: uB } } });
+  if (existingConv) {
+    res.json({ ok: true, alreadyAccepted: true, conversationId: existingConv.id });
+    return;
+  }
+
+  const existing = await prisma.chatRequest.findUnique({
+    where: { senderId_receiverId: { senderId: viewerId, receiverId: targetId } },
+  });
+
+  if (existing) {
+    if (existing.status === 'PENDING') {
+      res.status(409).json({ error: 'Chat request already sent and pending.' });
+      return;
+    }
+    if (existing.status === 'DENIED' && existing.deniedAt) {
+      const unlockAt = new Date(existing.deniedAt.getTime() + 24 * 60 * 60 * 1000);
+      if (unlockAt > new Date()) {
+        const hrs = Math.ceil((unlockAt.getTime() - Date.now()) / (60 * 60 * 1000));
+        res.status(429).json({
+          error: `Your previous chat request was declined. You can send another request in ~${hrs} hour(s).`,
+          cooldownEndsAt: unlockAt.toISOString(),
+        });
+        return;
+      }
+    }
+    const updated = await prisma.chatRequest.update({
+      where: { id: existing.id },
+      data: { status: 'PENDING', deniedAt: null },
+      include: { sender: true },
+    });
+    emitToUser(targetId, 'chat:request:new', { id: updated.id, user: toPublicUserDTO(updated.sender) });
+    res.status(201).json({ ok: true, requestId: updated.id });
+    return;
+  }
+
+  const created = await prisma.chatRequest.create({
+    data: { senderId: viewerId, receiverId: targetId, status: 'PENDING' },
+    include: { sender: true },
+  });
+  emitToUser(targetId, 'chat:request:new', { id: created.id, user: toPublicUserDTO(created.sender) });
+  res.status(201).json({ ok: true, requestId: created.id });
+});
+
+chatRouter.post('/requests/:id/accept', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const cr = await prisma.chatRequest.findUnique({ where: { id: req.params.id } });
+  if (!cr || cr.receiverId !== viewerId || cr.status !== 'PENDING') {
+    res.status(404).json({ error: 'Pending chat request not found.' });
+    return;
+  }
+  const [userAId, userBId] = canonicalPair(cr.senderId, cr.receiverId);
+  const [, conv] = await prisma.$transaction([
+    prisma.chatRequest.update({ where: { id: cr.id }, data: { status: 'ACCEPTED', deniedAt: null } }),
+    prisma.conversation.upsert({
+      where: { userAId_userBId: { userAId, userBId } },
+      update: {},
+      create: { userAId, userBId },
+    }),
+  ]);
+  emitToUser(cr.senderId, 'chat:request:accepted', { conversationId: conv.id, userId: viewerId });
+  res.json({ ok: true, conversationId: conv.id });
+});
+
+chatRouter.post('/requests/:id/deny', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const cr = await prisma.chatRequest.findUnique({ where: { id: req.params.id } });
+  if (!cr || cr.receiverId !== viewerId || cr.status !== 'PENDING') {
+    res.status(404).json({ error: 'Pending chat request not found.' });
+    return;
+  }
+  await prisma.chatRequest.update({
+    where: { id: cr.id },
+    data: { status: 'DENIED', deniedAt: new Date() },
+  });
+  res.json({ ok: true, message: 'Chat request declined. They cannot request again for 24 hours.' });
+});
+
+chatRouter.patch('/conversations/:id/wallpaper', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ wallpaper: z.string().min(1).max(64) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid wallpaper.' });
+    return;
+  }
+  const conv = await prisma.conversation.findUnique({ where: { id: req.params.id } });
+  if (!conv || (conv.userAId !== req.auth!.user.id && conv.userBId !== req.auth!.user.id)) {
+    res.status(403).json({ error: 'Access denied.' });
+    return;
+  }
+  await prisma.conversation.update({ where: { id: conv.id }, data: { wallpaper: parsed.data.wallpaper } });
+  res.json({ ok: true, wallpaper: parsed.data.wallpaper });
+});
+
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: env.maxUploadBytes, files: 1 },
+  limits: { fileSize: Math.max(env.maxUploadBytes, 10 * 1024 * 1024), files: 1 },
 });
 
 const ALLOWED_REACTION_EMOJIS = new Set(['❤️', '😂', '🔥', '👍', '😮', '😢']);
@@ -97,11 +246,6 @@ chatRouter.post('/conversations/with/:friendId', async (req: AuthenticatedReques
     return;
   }
 
-  if (!(await areFriends(viewerId, friendId))) {
-    res.status(403).json({ error: 'You can only message accepted friends.' });
-    return;
-  }
-
   const friend = await prisma.user.findUnique({ where: { id: friendId } });
   if (!friend) {
     res.status(404).json({ error: 'User not found.' });
@@ -109,11 +253,23 @@ chatRouter.post('/conversations/with/:friendId', async (req: AuthenticatedReques
   }
 
   const [userAId, userBId] = canonicalPair(viewerId, friendId);
-  const conversation = await prisma.conversation.upsert({
-    where: { userAId_userBId: { userAId, userBId } },
-    update: {},
-    create: { userAId, userBId },
-  });
+  const existingConv = await prisma.conversation.findUnique({ where: { userAId_userBId: { userAId, userBId } } });
+  if (!existingConv) {
+    const acceptedReq = await prisma.chatRequest.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { senderId: viewerId, receiverId: friendId },
+          { senderId: friendId, receiverId: viewerId },
+        ],
+      },
+    });
+    if (!acceptedReq) {
+      res.status(403).json({ error: 'Send a Chat Request first and wait for them to accept before chatting.' });
+      return;
+    }
+  }
+  const conversation = existingConv || await prisma.conversation.create({ data: { userAId, userBId } });
 
   res.json({
     conversation: {
@@ -121,6 +277,7 @@ chatRouter.post('/conversations/with/:friendId', async (req: AuthenticatedReques
       friend: toPublicUserDTO(friend),
       online: friend.hideOnlineStatus ? false : isUserOnline(friend.id),
       disappearAfterSeconds: conversation.disappearAfterSeconds,
+      wallpaper: conversation.wallpaper || 'default',
       hiddenInVault: conversation.userAId === viewerId ? conversation.hiddenByA : conversation.hiddenByB,
       lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
     },
@@ -164,6 +321,7 @@ chatRouter.get('/conversations/:id/messages', async (req: AuthenticatedRequest, 
       friend: toPublicUserDTO(other),
       online: other.hideOnlineStatus ? false : isUserOnline(other.id),
       disappearAfterSeconds: conversation.disappearAfterSeconds,
+      wallpaper: conversation.wallpaper || 'default',
       hiddenInVault: conversation.userAId === viewerId ? conversation.hiddenByA : conversation.hiddenByB,
     },
     messages: messages.map(serializeMessage),
@@ -360,6 +518,7 @@ chatRouter.post(
     }
 
     const isAudio = req.file.mimetype.startsWith('audio/');
+    const isVideo = req.file.mimetype.startsWith('video/');
     const caption = typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, 500) : '';
     try { assertSafeText(caption); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Blocked by Safety Filter.' }); return; }
     const replyToId = typeof req.body.replyToId === 'string' && req.body.replyToId ? req.body.replyToId : null;
@@ -369,7 +528,14 @@ chatRouter.post(
         : null;
 
     try {
-      const stored = isAudio
+      const stored = isVideo
+        ? await processAndStoreVideo({
+            buffer: req.file.buffer,
+            declaredMimeType: req.file.mimetype,
+            originalFilename: req.file.originalname,
+            ownerId: viewerId,
+          })
+        : isAudio
         ? await processAndStoreAudio({
             buffer: req.file.buffer,
             declaredMimeType: req.file.mimetype,
@@ -390,7 +556,7 @@ chatRouter.post(
         const asset = await tx.mediaAsset.create({
           data: {
             ownerId: viewerId,
-            purpose: isAudio ? MediaPurpose.CHAT_AUDIO : MediaPurpose.CHAT_IMAGE,
+            purpose: isVideo ? MediaPurpose.CHAT_VIDEO : isAudio ? MediaPurpose.CHAT_AUDIO : MediaPurpose.CHAT_IMAGE,
             storageKey: stored.storageKey,
             mimeType: stored.mimeType,
             byteSize: stored.byteSize,
@@ -406,7 +572,7 @@ chatRouter.post(
             senderId: viewerId,
             content: caption,
             mediaId: asset.id,
-            mediaKind: isAudio ? 'AUDIO' : 'IMAGE',
+            mediaKind: isVideo ? 'VIDEO' : isAudio ? 'AUDIO' : 'IMAGE',
             replyToId,
             deliveryState,
             expiresAt,

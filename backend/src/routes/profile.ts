@@ -9,7 +9,8 @@ import { type AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
 import { uploadLimiter } from '../middleware/rateLimits.js';
 import { normalizeUsername, toPublicUserDTO, toSelfUserDTO, VALID_THEME_KEYS } from '../utils/security.js';
 import { deleteStoredMedia, processAndStoreImage } from '../services/storage.js';
-import { areFriends, getBlockState } from '../services/permissions.js';
+import { areFriends, getBlockState, getFriendIds } from '../services/permissions.js';
+import { canonicalPair } from '../utils/security.js';
 
 export const profileRouter = Router();
 
@@ -158,6 +159,16 @@ profileRouter.delete('/me/banner', async (req: AuthenticatedRequest, res) => {
   res.json({ profile: toSelfUserDTO(updated) });
 });
 
+
+profileRouter.get('/me/friends', async (req: AuthenticatedRequest, res) => {
+  const viewerId = req.auth!.user.id;
+  const friendIds = await getFriendIds(viewerId);
+  const users = friendIds.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: friendIds } }, orderBy: { primaryNickname: 'asc' } })
+    : [];
+  res.json({ friends: users.map((u) => toPublicUserDTO(u)) });
+});
+
 profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
   const normalized = req.params.username.trim().toLowerCase();
   const target = await prisma.user.findUnique({ where: { usernameNormalized: normalized } });
@@ -195,11 +206,77 @@ profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
     prisma.friendship.count({ where: { OR: [{ userAId: target.id }, { userBId: target.id }] } }),
   ]);
 
+  const activeStories = await prisma.story.findMany({
+    where: {
+      authorId: target.id,
+      deletedAt: null,
+      expiresAt: { gt: new Date() },
+      ...(canSeeFriendsOnly ? {} : target.isPrivateProfile ? { id: '__none__' } : { audience: PostAudience.PUBLIC }),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 10,
+  });
+
+  let chatStatus: 'NONE' | 'ACCEPTED' | 'PENDING_SENT' | 'PENDING_RECEIVED' | 'COOLDOWN' = 'NONE';
+  let chatRequestId: string | null = null;
+  let cooldownEndsAt: string | null = null;
+  let conversationId: string | null = null;
+
+  if (!isSelf) {
+    const [uA, uB] = canonicalPair(viewerId, target.id);
+    const existingConv = await prisma.conversation.findUnique({ where: { userAId_userBId: { userAId: uA, userBId: uB } }, select: { id: true } });
+    if (existingConv) {
+      chatStatus = 'ACCEPTED';
+      conversationId = existingConv.id;
+    } else {
+      const reqs = await prisma.chatRequest.findMany({
+        where: {
+          OR: [
+            { senderId: viewerId, receiverId: target.id },
+            { senderId: target.id, receiverId: viewerId },
+          ],
+        },
+      });
+      const accepted = reqs.find((r) => r.status === 'ACCEPTED');
+      const sentPending = reqs.find((r) => r.senderId === viewerId && r.status === 'PENDING');
+      const recvPending = reqs.find((r) => r.receiverId === viewerId && r.status === 'PENDING');
+      const sentDenied = reqs.find((r) => r.senderId === viewerId && r.status === 'DENIED' && r.deniedAt);
+      if (accepted) {
+        chatStatus = 'ACCEPTED';
+      } else if (sentPending) {
+        chatStatus = 'PENDING_SENT';
+        chatRequestId = sentPending.id;
+      } else if (recvPending) {
+        chatStatus = 'PENDING_RECEIVED';
+        chatRequestId = recvPending.id;
+      } else if (sentDenied && sentDenied.deniedAt) {
+        const unlockTime = new Date(sentDenied.deniedAt.getTime() + 24 * 60 * 60 * 1000);
+        if (unlockTime > new Date()) {
+          chatStatus = 'COOLDOWN';
+          cooldownEndsAt = unlockTime.toISOString();
+        }
+      }
+    }
+  }
+
   res.json({
     profile: toPublicUserDTO(target),
     stats: { postCount: posts.length, friendCount },
     isFriend,
     isSelf,
+    isPrivateLocked: !canSeeFriendsOnly && Boolean(target.isPrivateProfile),
+    chatStatus,
+    chatRequestId,
+    cooldownEndsAt,
+    conversationId,
+    stories: activeStories.map((s) => ({
+      id: s.id,
+      imageUrl: s.mediaId ? `/api/media/${s.mediaId}` : null,
+      textContent: s.textContent,
+      bgGradient: s.bgGradient,
+      expiresAt: s.expiresAt.toISOString(),
+      createdAt: s.createdAt.toISOString(),
+    })),
     posts: posts.map((p) => ({
       id: p.id,
       caption: p.caption,

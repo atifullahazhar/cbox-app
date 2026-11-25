@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, MessageCircle, Images, CalendarDays, Terminal } from 'lucide-react';
+import { User, MessageCircle, Images, Compass, Terminal } from 'lucide-react';
 import type { NavSection, SafeUser } from '../../types';
 
 interface BottomNavProps {
@@ -26,7 +26,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       badge: pendingRequestCount > 0 ? pendingRequestCount : undefined,
     },
     { id: 'posts', label: 'Posts', icon: <Images className="h-5 w-5" /> },
-    { id: 'events', label: 'Events', icon: <CalendarDays className="h-5 w-5" /> },
+    { id: 'communities', label: 'Hubs', icon: <Compass className="h-5 w-5" /> },
   ];
 
   if (isDeveloper) {

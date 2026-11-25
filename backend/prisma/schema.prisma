@@ -37,6 +37,7 @@ enum MediaPurpose {
   CHAT_IMAGE
   CHAT_AUDIO
   STORY_IMAGE
+  CHAT_VIDEO
 }
 
 enum MessageDeliveryState {
@@ -60,7 +61,19 @@ enum ReportStatus {
 enum GroupRole {
   OWNER
   ADMIN
+  VICE_ADMIN
   MEMBER
+}
+
+enum ChatRequestStatus {
+  PENDING
+  ACCEPTED
+  DENIED
+}
+
+enum CommunityChannelType {
+  TEXT
+  VOICE
 }
 
 enum EventRsvpStatus {
@@ -359,6 +372,8 @@ model GroupMessage {
   groupId   String
   senderId  String
   content   String   @db.VarChar(2000)
+  mediaId   String?
+  mediaKind String?  @db.VarChar(16)
   createdAt DateTime @default(now())
 
   group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -518,4 +533,83 @@ model AuditEvent {
 
   @@index([actorId, createdAt])
   @@index([action, createdAt])
+}
+
+
+model ChatRequest {
+  id         String            @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     ChatRequestStatus @default(PENDING)
+  deniedAt   DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  sender     User              @relation("ChatReqSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User              @relation("ChatReqReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+}
+
+model Community {
+  id             String             @id @default(cuid())
+  name           String             @db.VarChar(64)
+  description    String             @default("") @db.VarChar(300)
+  iconEmoji      String             @default("🌐") @db.VarChar(16)
+  bannerGradient String             @default("from-sky-600 to-indigo-900") @db.VarChar(64)
+  isPublic       Boolean            @default(true)
+  inviteCode     String             @unique @db.VarChar(24)
+  creatorId      String
+  createdAt      DateTime           @default(now())
+
+  creator        User               @relation("CommunityCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  channels       CommunityChannel[]
+  members        CommunityMember[]
+}
+
+model CommunityChannel {
+  id                 String               @id @default(cuid())
+  communityId        String
+  name               String               @db.VarChar(40)
+  type               CommunityChannelType @default(TEXT)
+  topic              String               @default("") @db.VarChar(160)
+  readonlyForMembers Boolean              @default(false)
+  slowModeSeconds    Int                  @default(0)
+  position           Int                  @default(0)
+  createdAt          DateTime             @default(now())
+
+  community          Community            @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  messages           CommunityMessage[]
+
+  @@index([communityId, position])
+}
+
+model CommunityMember {
+  id          String    @id @default(cuid())
+  communityId String
+  userId      String
+  role        GroupRole @default(MEMBER)
+  joinedAt    DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+}
+
+model CommunityMessage {
+  id        String           @id @default(cuid())
+  channelId String
+  senderId  String
+  content   String           @default("") @db.VarChar(2000)
+  mediaId   String?
+  mediaKind String?          @db.VarChar(16)
+  isPinned  Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  channel   CommunityChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender    User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, createdAt])
 }

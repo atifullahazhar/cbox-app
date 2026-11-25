@@ -144,6 +144,7 @@ export interface SafeUserDTO {
   theme?: 'SYSTEM' | 'LIGHT' | 'DARK';
   themeKey?: string;
   role?: 'USER' | 'DEVELOPER';
+  isVerified?: boolean;
   isDemo?: boolean;
   createdAt?: string;
 }
@@ -158,6 +159,8 @@ export function toPublicUserDTO(user: {
   bio: string;
   avatarMediaId: string | null;
   bannerMediaId: string | null;
+  role?: 'USER' | 'DEVELOPER';
+  isVerified?: boolean;
   isDemo?: boolean;
 }): SafeUserDTO {
   return {
@@ -170,6 +173,8 @@ export function toPublicUserDTO(user: {
     bio: user.bio,
     avatarUrl: user.avatarMediaId ? `/api/media/${user.avatarMediaId}` : null,
     bannerUrl: user.bannerMediaId ? `/api/media/${user.bannerMediaId}` : null,
+    role: user.role,
+    isVerified: Boolean(user.isVerified),
     isDemo: user.isDemo,
   };
 }

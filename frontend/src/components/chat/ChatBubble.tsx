@@ -1,3 +1,4 @@
+import { isStickerMessage } from '../ui/RankBadge';
 import React, { useRef, useState } from 'react';
 import {
   RotateCcw,
@@ -142,6 +143,16 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                     className="rounded-xl max-h-64 w-auto object-cover border border-black/10"
                   />
                 </a>
+              )}
+
+              {/* In-Chat Short Video Clip */}
+              {message.mediaKind === 'VIDEO' && message.mediaUrl && (
+                <video
+                  src={message.mediaUrl}
+                  controls
+                  preload="metadata"
+                  className="mb-1.5 rounded-xl max-h-64 w-full border border-black/10"
+                />
               )}
 
               {/* In-Chat Voice Note with Speed Control */}

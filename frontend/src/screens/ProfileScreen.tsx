@@ -4,6 +4,10 @@ import type { PostAudience, PostItem, ProfileStats, SafeUser } from '../types';
 import { apiFetch, apiUploadWithProgress } from '../lib/api';
 import { ProfileHeader } from '../components/profile/ProfileHeader';
 import { SettingsPanel } from '../components/profile/SettingsPanel';
+import { UserProfileModal } from '../components/profile/UserProfileModal';
+import { Modal } from '../components/ui/Modal';
+import { Avatar } from '../components/ui/Avatar';
+import { RankBadges } from '../components/ui/RankBadge';
 import { ImageCropModal } from '../components/ui/ImageCropModal';
 import { PostCard } from '../components/posts/PostCard';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -30,6 +34,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onNotify,
 }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [friendsListOpen, setFriendsListOpen] = useState(false);
+  const [myFriends, setMyFriends] = useState<SafeUser[]>([]);
+  const [viewUsername, setViewUsername] = useState<string | null>(null);
   const [ownPosts, setOwnPosts] = useState<PostItem[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
 
@@ -145,6 +152,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         user={user}
         stats={stats}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenFriendsList={async () => {
+          setFriendsListOpen(true);
+          try {
+            const r = await apiFetch<{ friends: SafeUser[] }>("/api/profile/me/friends");
+            setMyFriends(r.friends);
+          } catch {}
+        }}
         onPickAvatar={() => openPicker('avatar')}
         onPickBanner={() => openPicker('banner')}
       />
@@ -176,6 +190,40 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
         )}
       </section>
+
+      <Modal open={friendsListOpen} onClose={() => setFriendsListOpen(false)} title={`Friends (${myFriends.length})`}>
+        {myFriends.length === 0 ? (
+          <p className="text-xs text-cbox-muted py-4 text-center">No friends yet. Accept a friend request to see them here!</p>
+        ) : (
+          <div className="divide-y divide-cbox-border max-h-80 overflow-y-auto">
+            {myFriends.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  setFriendsListOpen(false);
+                  setViewUsername(f.username);
+                }}
+                className="w-full py-2.5 flex items-center justify-between gap-2 text-left hover:bg-cbox-elevated/40 px-2 rounded-xl transition"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Avatar src={f.avatarUrl} name={f.primaryNickname} size="sm" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold text-cbox-text truncate">{f.primaryNickname}</span>
+                      <RankBadges userRole={f.role} isVerified={f.isVerified} />
+                    </div>
+                    <p className="text-[11px] text-cbox-muted">@{f.username}</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold text-cbox-accent">View Profile</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      <UserProfileModal username={viewUsername} onClose={() => setViewUsername(null)} onNotify={onNotify} />
 
       <SettingsPanel
         open={settingsOpen}

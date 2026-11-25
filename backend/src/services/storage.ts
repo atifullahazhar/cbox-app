@@ -169,6 +169,42 @@ export async function processAndStoreAudio(params: {
   };
 }
 
+
+const ALLOWED_VIDEO_MIMES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+
+export async function processAndStoreVideo(params: {
+  buffer: Buffer;
+  declaredMimeType: string;
+  ownerId: string;
+  originalFilename?: string;
+}): Promise<{
+  storageKey: string;
+  mimeType: string;
+  byteSize: number;
+  fileData: Buffer;
+}> {
+  if (!getPlatformFeatureFlags().mediaUploadsEnabled) {
+    throw new Error('Media uploads are temporarily paused by Developer Control.');
+  }
+  const baseMime = params.declaredMimeType.split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_VIDEO_MIMES.has(baseMime)) {
+    throw new Error('Unsupported video format. Allowed: MP4, WebM, MOV.');
+  }
+  const maxVideoBytes = 10 * 1024 * 1024; // 10 MB max short clip
+  if (params.buffer.length === 0 || params.buffer.length > maxVideoBytes) {
+    throw new Error('Video clip exceeds maximum allowed size (10 MB).');
+  }
+  const ext = baseMime === 'video/webm' ? 'webm' : baseMime === 'video/quicktime' ? 'mov' : 'mp4';
+  const storageKey = `chat_video/${params.ownerId}/${crypto.randomUUID()}.${ext}`;
+  await writeBuffer(storageKey, params.buffer, baseMime);
+  return {
+    storageKey,
+    mimeType: baseMime,
+    byteSize: params.buffer.length,
+    fileData: params.buffer,
+  };
+}
+
 export async function readStoredMedia(storageKey: string): Promise<Buffer> {
   if (env.storageDriver === 's3') {
     const res = await getS3Client().send(
