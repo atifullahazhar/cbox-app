@@ -24,6 +24,7 @@ const updateProfileSchema = z.object({
   bio: z.string().trim().max(280).optional(),
   theme: z.nativeEnum(ThemePreference).optional(),
   themeKey: z.string().max(32).optional(),
+  isPrivateProfile: z.boolean().optional(),
   hideOnlineStatus: z.boolean().optional(),
   disableReadReceipts: z.boolean().optional(),
 });
@@ -68,6 +69,7 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   if (parsed.data.themeKey !== undefined && VALID_THEME_KEYS.has(parsed.data.themeKey)) {
     updateData.themeKey = parsed.data.themeKey;
   }
+  if (parsed.data.isPrivateProfile !== undefined) updateData.isPrivateProfile = parsed.data.isPrivateProfile;
   if (parsed.data.hideOnlineStatus !== undefined) updateData.hideOnlineStatus = parsed.data.hideOnlineStatus;
   if (parsed.data.disableReadReceipts !== undefined) updateData.disableReadReceipts = parsed.data.disableReadReceipts;
 
@@ -174,7 +176,11 @@ profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
 
   const [posts, friendCount] = await Promise.all([
     prisma.post.findMany({
-      where: { authorId: target.id, deletedAt: null, ...(canSeeFriendsOnly ? {} : { audience: PostAudience.PUBLIC }) },
+      where: {
+        authorId: target.id,
+        deletedAt: null,
+        ...(canSeeFriendsOnly ? {} : target.isPrivateProfile ? { id: '__none__' } : { audience: PostAudience.PUBLIC }),
+      },
       include: {
         author: true,
         likes: { where: { userId: viewerId }, select: { userId: true } },

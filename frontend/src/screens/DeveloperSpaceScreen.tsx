@@ -42,8 +42,8 @@ export const DeveloperSpaceScreen: React.FC = () => {
     return (
       <EmptyState
         icon={<Lock className="h-6 w-6" />}
-        title="Developer Space Restricted"
-        description={error || 'Server verification is required to view Developer Space.'}
+        title="Developer Control Restricted"
+        description={error || 'Server verification is required to view Developer Control.'}
       />
     );
   }
@@ -57,9 +57,9 @@ export const DeveloperSpaceScreen: React.FC = () => {
               <Terminal className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-cbox-text">Chatterbox Developer Space</h1>
+              <h1 className="text-xl font-bold text-cbox-text">Chatterbox Developer Control</h1>
               <p className="text-xs text-cbox-muted">
-                Server-verified workspace for @{data.account.username}
+                Server-verified control panel for @{data.account.username}
               </p>
             </div>
           </div>
@@ -71,7 +71,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
         </div>
 
         <p className="text-xs text-cbox-muted leading-relaxed">
-          Privacy boundary enforced: Developer Space is strictly audited and never grants access to
+          Privacy boundary enforced: Developer Control is strictly audited and never grants access to
           private one-to-one messages or friends-only posts.
         </p>
 

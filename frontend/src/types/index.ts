@@ -3,7 +3,7 @@ import type { ThemeKey } from '../lib/themes';
 export type UserRole = 'USER' | 'DEVELOPER';
 export type ThemePreference = 'SYSTEM' | 'LIGHT' | 'DARK';
 export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC';
-export type NavSection = 'profile' | 'chat' | 'posts' | 'developer';
+export type NavSection = 'profile' | 'chat' | 'posts' | 'events' | 'developer';
 
 export interface SafeUser {
   id: string;
@@ -14,6 +14,8 @@ export interface SafeUser {
   bio: string;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  dateOfBirth?: string | null;
+  isPrivateProfile?: boolean;
   phoneMasked?: string | null;
   hasSecretPin?: boolean;
   totpEnabled?: boolean;
@@ -24,6 +26,22 @@ export interface SafeUser {
   role?: UserRole;
   isDemo?: boolean;
   createdAt?: string;
+}
+
+export interface EventItem {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  location: string;
+  startsAt: string;
+  bgGradient: string;
+  goingCount: number;
+  interestedCount: number;
+  myStatus: 'GOING' | 'INTERESTED' | null;
+  isCreator: boolean;
+  creator: SafeUser;
+  createdAt: string;
 }
 
 export interface ProfileStats {

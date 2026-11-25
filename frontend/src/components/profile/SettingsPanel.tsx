@@ -13,6 +13,8 @@ import {
   Phone,
   Palette,
   Smartphone,
+  Terminal,
+  ShieldCheck,
 } from 'lucide-react';
 import type { BlockedUserItem, SafeUser, SessionInfo } from '../../types';
 import { CHATTERBOX_THEMES, type ThemeKey } from '../../lib/themes';
@@ -51,9 +53,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [newAlias, setNewAlias] = useState('');
   const [bio, setBio] = useState(user.bio);
   const [themeKey, setThemeKey] = useState<ThemeKey>(user.themeKey || 'midnight-neon');
+  const [isPrivateProfile, setIsPrivateProfile] = useState(Boolean(user.isPrivateProfile));
   const [hideOnlineStatus, setHideOnlineStatus] = useState(Boolean(user.hideOnlineStatus));
   const [disableReadReceipts, setDisableReadReceipts] = useState(Boolean(user.disableReadReceipts));
   const [saving, setSaving] = useState(false);
+
+  // Developer Control Code unlock in Settings
+  const [devCodeInput, setDevCodeInput] = useState('');
+  const [verifyingDevCode, setVerifyingDevCode] = useState(false);
 
   const [secretPin, setSecretPin] = useState('');
   const [savingPin, setSavingPin] = useState(false);
@@ -77,6 +84,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setAlternateNicknames(user.alternateNicknames);
     setBio(user.bio);
     setThemeKey(user.themeKey || 'midnight-neon');
+    setIsPrivateProfile(Boolean(user.isPrivateProfile));
     setHideOnlineStatus(Boolean(user.hideOnlineStatus));
     setDisableReadReceipts(Boolean(user.disableReadReceipts));
     setTotpSecret(null);
@@ -122,8 +130,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   }
 
-  async function handlePrivacyToggle(field: 'hideOnlineStatus' | 'disableReadReceipts', val: boolean) {
-    if (field === 'hideOnlineStatus') setHideOnlineStatus(val);
+  async function handlePrivacyToggle(
+    field: 'isPrivateProfile' | 'hideOnlineStatus' | 'disableReadReceipts',
+    val: boolean
+  ) {
+    if (field === 'isPrivateProfile') setIsPrivateProfile(val);
+    else if (field === 'hideOnlineStatus') setHideOnlineStatus(val);
     else setDisableReadReceipts(val);
     try {
       const res = await apiFetch<{ profile: SafeUser }>('/api/profile/me', {
@@ -132,6 +144,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       });
       onUserUpdated(res.profile);
     } catch {}
+  }
+
+  async function handleUnlockDeveloperControl(e: React.FormEvent) {
+    e.preventDefault();
+    if (!devCodeInput.trim()) return;
+    setVerifyingDevCode(true);
+    try {
+      const res = await apiFetch<{ user: SafeUser }>('/api/auth/developer-code', {
+        method: 'POST',
+        body: JSON.stringify({ code: devCodeInput.trim() }),
+      });
+      onUserUpdated(res.user);
+      setDevCodeInput('');
+      onNotify('Developer Control unlocked in your dashboard!', 'success');
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Invalid developer code.', 'error');
+    } finally {
+      setVerifyingDevCode(false);
+    }
   }
 
   async function handleSaveSecretPin(e: React.FormEvent) {
@@ -221,7 +252,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       open={open}
       onClose={onClose}
       title="Chatterbox Settings"
-      description="10 animated themes, Secret Mode, 2FA, privacy, and account controls."
+      description="10 animated themes, Developer Control access, Secret Mode, 2FA, and privacy."
       maxWidthClass="max-w-2xl"
     >
       <div className="space-y-8">
@@ -344,6 +375,48 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
         </form>
 
+        {/* Developer Control Code Access */}
+        <section className="pt-4 border-t border-cbox-border">
+          <div className="p-4 rounded-2xl border border-cbox-violet/40 bg-cbox-violet/10 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-cbox-text flex items-center gap-1.5">
+                <Terminal className="h-4 w-4 text-cbox-violet" /> Developer Control Access
+              </span>
+              {user.role === 'DEVELOPER' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cbox-success/15 text-cbox-success">
+                  <ShieldCheck className="h-3 w-3" /> Unlocked
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-cbox-muted">Standard User</span>
+              )}
+            </div>
+
+            {user.role === 'DEVELOPER' ? (
+              <p className="text-xs text-cbox-muted">
+                Developer Control is active on your account and visible in the main dashboard navigation.
+              </p>
+            ) : (
+              <form onSubmit={handleUnlockDeveloperControl} className="flex gap-2">
+                <input
+                  type="password"
+                  maxLength={32}
+                  value={devCodeInput}
+                  onChange={(e) => setDevCodeInput(e.target.value)}
+                  placeholder="Enter 8-character Developer Code"
+                  className="flex-1 min-w-0 rounded-xl bg-cbox-surface border border-cbox-border px-3 py-2 text-xs font-mono tracking-wider text-cbox-text"
+                />
+                <button
+                  type="submit"
+                  disabled={verifyingDevCode || !devCodeInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-cbox-violet text-white text-xs font-semibold disabled:opacity-40"
+                >
+                  {verifyingDevCode ? 'Verifying…' : 'Unlock'}
+                </button>
+              </form>
+            )}
+          </div>
+        </section>
+
         {/* Secret Mode PIN + 2FA TOTP */}
         <section className="grid sm:grid-cols-2 gap-3 pt-4 border-t border-cbox-border">
           <div className="p-4 rounded-2xl border border-cbox-violet/35 bg-cbox-violet/5 space-y-2.5">
@@ -414,6 +487,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <h3 className="text-sm font-semibold uppercase tracking-wider text-cbox-muted flex items-center gap-2">
             <EyeOff className="h-4 w-4" /> Privacy & Alerts
           </h3>
+          <label className="flex items-center justify-between p-3 rounded-xl border border-cbox-border bg-cbox-elevated/40 text-xs cursor-pointer">
+            <span>Private Profile (Only friends can view your posts)</span>
+            <input type="checkbox" checked={isPrivateProfile} onChange={(e) => handlePrivacyToggle('isPrivateProfile', e.target.checked)} className="h-4 w-4 accent-cbox-accent" />
+          </label>
           <label className="flex items-center justify-between p-3 rounded-xl border border-cbox-border bg-cbox-elevated/40 text-xs cursor-pointer">
             <span>Hide Online Status</span>
             <input type="checkbox" checked={hideOnlineStatus} onChange={(e) => handlePrivacyToggle('hideOnlineStatus', e.target.checked)} className="h-4 w-4 accent-cbox-accent" />

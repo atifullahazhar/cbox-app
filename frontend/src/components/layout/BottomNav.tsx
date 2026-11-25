@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, MessageCircle, Images, Terminal } from 'lucide-react';
+import { User, MessageCircle, Images, CalendarDays, Terminal } from 'lucide-react';
 import type { NavSection, SafeUser } from '../../types';
 
 interface BottomNavProps {
@@ -26,12 +26,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       badge: pendingRequestCount > 0 ? pendingRequestCount : undefined,
     },
     { id: 'posts', label: 'Posts', icon: <Images className="h-5 w-5" /> },
+    { id: 'events', label: 'Events', icon: <CalendarDays className="h-5 w-5" /> },
   ];
 
   if (isDeveloper) {
     items.push({
       id: 'developer',
-      label: 'Dev',
+      label: 'Dev Ctrl',
       icon: <Terminal className="h-5 w-5" />,
     });
   }
@@ -41,7 +42,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       aria-label="Mobile navigation"
       className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-cbox-surface/95 backdrop-blur-md border-t border-cbox-border pb-safe"
     >
-      <div className="flex items-center justify-around px-2 pt-1.5">
+      <div className="flex items-center justify-around px-1 pt-1.5">
         {items.map((item) => {
           const isActive = active === item.id;
           return (
@@ -50,7 +51,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               type="button"
               onClick={() => onNavigate(item.id)}
               aria-current={isActive ? 'page' : undefined}
-              className={`relative flex flex-col items-center justify-center gap-1 min-w-[64px] py-1.5 px-3 rounded-xl text-xs font-medium transition ${
+              className={`relative flex flex-col items-center justify-center gap-1 min-w-[54px] py-1.5 px-2 rounded-xl text-[11px] font-medium transition ${
                 isActive ? 'text-cbox-accent' : 'text-cbox-muted hover:text-cbox-text'
               }`}
             >
@@ -62,7 +63,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   </span>
                 )}
               </span>
-              <span>{item.label}</span>
+              <span className="truncate">{item.label}</span>
             </button>
           );
         })}

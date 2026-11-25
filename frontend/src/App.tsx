@@ -14,6 +14,7 @@ import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ChatScreen } from './screens/ChatScreen';
 import { PostsScreen } from './screens/PostsScreen';
+import { EventsScreen } from './screens/EventsScreen';
 import { DeveloperSpaceScreen } from './screens/DeveloperSpaceScreen';
 
 export const App: React.FC = () => {
@@ -210,6 +211,8 @@ export const App: React.FC = () => {
             )}
 
             {activeNav === 'posts' && <PostsScreen onStatsChanged={refreshMe} onNotify={notify} />}
+
+            {activeNav === 'events' && <EventsScreen currentUser={user} onNotify={notify} />}
 
             {activeNav === 'developer' && user.role === 'DEVELOPER' && <DeveloperSpaceScreen />}
           </AppShell>

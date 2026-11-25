@@ -1,4 +1,4 @@
-# Render Blueprint — Chatterbox Phase 2 (Python FastAPI Auth + Node.js Express/Socket.IO + PostgreSQL)
+# Render Blueprint — Chatterbox v4 (Python FastAPI Auth + Node.js Express/Socket.IO + PostgreSQL)
 
 databases:
   - name: cbox-db
@@ -30,8 +30,7 @@ services:
         value: "true"
       - key: ALLOW_BLOCKING_DEVELOPERS
         value: "false"
-      - key: DEVELOPER_CODE_ALLOW_DEMO_9_DIGIT
-        value: "true"
+      # Set your 8-character Developer Control access code in Render Dashboard -> Environment
       - key: DEVELOPER_ACCESS_CODE
         sync: false
       - key: INTERNAL_AUTH_KEY

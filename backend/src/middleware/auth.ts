@@ -20,6 +20,8 @@ export interface AuthenticatedRequest extends Request {
       secretPinHash: string | null;
       totpSecret: string | null;
       totpEnabled: boolean;
+      dateOfBirth: Date | null;
+      isPrivateProfile: boolean;
       hideOnlineStatus: boolean;
       disableReadReceipts: boolean;
       primaryNickname: string;
@@ -95,12 +97,12 @@ export async function requireDeveloper(req: AuthenticatedRequest, res: Response,
   if (req.auth.user.role !== UserRole.DEVELOPER) {
     await recordAuditEvent({
       actorId: req.auth.user.id,
-      action: 'DEVELOPER_SPACE_ACCESS',
+      action: 'DEVELOPER_CONTROL_ACCESS',
       outcome: 'DENIED',
       ipAddress: req.ip,
       metadata: { path: req.originalUrl },
     });
-    res.status(403).json({ error: 'Developer role required.' });
+    res.status(403).json({ error: 'Developer Control access required.' });
     return;
   }
   next();

@@ -63,6 +63,11 @@ enum GroupRole {
   MEMBER
 }
 
+enum EventRsvpStatus {
+  GOING
+  INTERESTED
+}
+
 model User {
   id                  String          @id @default(cuid())
   usernameNormalized  String          @unique @db.VarChar(24)
@@ -75,6 +80,8 @@ model User {
   totpEnabled         Boolean         @default(false)
   primaryNickname     String          @db.VarChar(48)
   alternateNicknames  String[]        @default([])
+  dateOfBirth         DateTime?
+  isPrivateProfile    Boolean         @default(false)
   bio                 String          @default("") @db.VarChar(280)
   avatarMediaId       String?
   bannerMediaId       String?
@@ -112,6 +119,8 @@ model User {
   groupMessages       GroupMessage[]     @relation("UserGroupMessages")
   groupPollsCreated   GroupPoll[]        @relation("UserGroupPolls")
   groupPollVotes      GroupPollVote[]    @relation("UserGroupPollVotes")
+  eventsCreated       Event[]            @relation("UserEventsCreated")
+  eventRsvps          EventRsvp[]        @relation("UserEventRsvps")
   reportsFiled        SafetyReport[]     @relation("ReportsFiled")
   reportsReceived     SafetyReport[]     @relation("ReportsReceived")
   pushSubscriptions   PushSubscription[] @relation("UserPushSubscriptions")
@@ -119,6 +128,37 @@ model User {
 
   @@index([usernameNormalized])
   @@index([phoneNormalized])
+}
+
+model Event {
+  id          String      @id @default(cuid())
+  creatorId   String
+  title       String      @db.VarChar(100)
+  category    String      @default("Meetup") @db.VarChar(32)
+  description String      @default("") @db.VarChar(600)
+  location    String      @default("Online on Chatterbox") @db.VarChar(120)
+  startsAt    DateTime
+  bgGradient  String      @default("from-sky-600 to-indigo-900") @db.VarChar(80)
+  createdAt   DateTime    @default(now())
+
+  creator     User        @relation("UserEventsCreated", fields: [creatorId], references: [id], onDelete: Cascade)
+  rsvps       EventRsvp[]
+
+  @@index([startsAt])
+}
+
+model EventRsvp {
+  id        String          @id @default(cuid())
+  eventId   String
+  userId    String
+  status    EventRsvpStatus @default(GOING)
+  createdAt DateTime        @default(now())
+
+  event     Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User            @relation("UserEventRsvps", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
 }
 
 model OtpChallenge {

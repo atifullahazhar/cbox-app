@@ -4,33 +4,14 @@ import { env } from '../config/env.js';
 
 export const USERNAME_REGEX = /^[a-z0-9_.]{3,24}$/;
 export const RESERVED_USERNAMES = new Set([
-  'admin',
-  'root',
-  'system',
-  'support',
-  'cbox',
-  'chatterbox',
-  'developer',
-  'api',
-  'login',
-  'signup',
-  'settings',
-  'profile',
-  'chat',
-  'posts',
+  'admin', 'root', 'system', 'support', 'cbox', 'chatterbox',
+  'developer', 'api', 'login', 'signup', 'settings', 'profile', 'chat', 'posts', 'events',
 ]);
 
 export const VALID_THEME_KEYS = new Set([
-  'midnight-neon',
-  'crisp-daylight',
-  'cherry-blossom',
-  'aurora-borealis',
-  'sunset-ember',
-  'ocean-bioluminescence',
-  'cyberpunk-synth',
-  'emerald-forest',
-  'lavender-dream',
-  'amoled-obsidian',
+  'midnight-neon', 'crisp-daylight', 'cherry-blossom', 'aurora-borealis',
+  'sunset-ember', 'ocean-bioluminescence', 'cyberpunk-synth',
+  'emerald-forest', 'lavender-dream', 'amoled-obsidian',
 ]);
 
 export function normalizeUsername(raw: string): { display: string; normalized: string } {
@@ -90,6 +71,39 @@ export function maskPhone(phone: string | null | undefined): string | null {
   return `${phone.slice(0, 3)}••••${phone.slice(-4)}`;
 }
 
+/**
+ * Signs a short-lived (15 min) phone verification token after Step 1 OTP passes
+ * so the user can proceed through the multi-step signup wizard safely.
+ */
+export function createPhoneVerificationToken(phoneNormalized: string): string {
+  const exp = Date.now() + 15 * 60 * 1000;
+  const payload = Buffer.from(JSON.stringify({ phoneNormalized, exp })).toString('base64url');
+  const sig = crypto.createHmac('sha256', env.sessionSecret).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+export function verifyPhoneVerificationToken(token: string): string | null {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  const expectedSig = crypto.createHmac('sha256', env.sessionSecret).update(payload).digest('base64url');
+  if (!timingSafeEqualStr(sig, expectedSig)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!parsed?.phoneNormalized || typeof parsed.exp !== 'number' || parsed.exp < Date.now()) {
+      return null;
+    }
+    return parsed.phoneNormalized as string;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Server-side Developer Control access code verification.
+ * Supports alphanumeric codes (6-32 chars, e.g. ATIF1234) configured in DEVELOPER_ACCESS_CODE env var.
+ * Never hardcoded in frontend source; compared in constant time; never logged.
+ */
 export function verifyDeveloperAccessCode(submittedCode: string): {
   valid: boolean;
   reason?: 'NOT_CONFIGURED' | 'INVALID_FORMAT' | 'MISMATCH';
@@ -98,12 +112,13 @@ export function verifyDeveloperAccessCode(submittedCode: string): {
   if (!configured || configured.startsWith('REPLACE_WITH')) {
     return { valid: false, reason: 'NOT_CONFIGURED' };
   }
-  const is12Digit = /^\d{12}$/.test(configured);
-  const is9DigitDemo = env.developerCodeAllowDemo9Digit && /^\d{9}$/.test(configured);
-  if (!is12Digit && !is9DigitDemo) return { valid: false, reason: 'NOT_CONFIGURED' };
   const candidate = submittedCode.trim();
-  if (!/^\d{9,12}$/.test(candidate)) return { valid: false, reason: 'INVALID_FORMAT' };
-  return timingSafeEqualStr(candidate, configured) ? { valid: true } : { valid: false, reason: 'MISMATCH' };
+  if (!/^[A-Za-z0-9_-]{6,32}$/.test(candidate)) {
+    return { valid: false, reason: 'INVALID_FORMAT' };
+  }
+  return timingSafeEqualStr(candidate, configured)
+    ? { valid: true }
+    : { valid: false, reason: 'MISMATCH' };
 }
 
 export function canonicalPair(idA: string, idB: string): [string, string] {
@@ -116,6 +131,8 @@ export interface SafeUserDTO {
   usernameNormalized: string;
   primaryNickname: string;
   alternateNicknames: string[];
+  dateOfBirth?: string | null;
+  isPrivateProfile?: boolean;
   bio: string;
   avatarUrl: string | null;
   bannerUrl: string | null;
@@ -137,6 +154,7 @@ export function toPublicUserDTO(user: {
   usernameNormalized: string;
   primaryNickname: string;
   alternateNicknames: string[];
+  isPrivateProfile?: boolean;
   bio: string;
   avatarMediaId: string | null;
   bannerMediaId: string | null;
@@ -148,6 +166,7 @@ export function toPublicUserDTO(user: {
     usernameNormalized: user.usernameNormalized,
     primaryNickname: user.primaryNickname,
     alternateNicknames: user.alternateNicknames,
+    isPrivateProfile: Boolean(user.isPrivateProfile),
     bio: user.bio,
     avatarUrl: user.avatarMediaId ? `/api/media/${user.avatarMediaId}` : null,
     bannerUrl: user.bannerMediaId ? `/api/media/${user.bannerMediaId}` : null,
@@ -164,6 +183,8 @@ export function toSelfUserDTO(user: {
   totpEnabled?: boolean;
   hideOnlineStatus?: boolean;
   disableReadReceipts?: boolean;
+  dateOfBirth?: Date | null;
+  isPrivateProfile?: boolean;
   primaryNickname: string;
   alternateNicknames: string[];
   bio: string;
@@ -178,6 +199,7 @@ export function toSelfUserDTO(user: {
   return {
     ...toPublicUserDTO(user),
     phoneMasked: maskPhone(user.phoneNormalized),
+    dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
     hasSecretPin: Boolean(user.secretPinHash),
     totpEnabled: Boolean(user.totpEnabled),
     hideOnlineStatus: Boolean(user.hideOnlineStatus),

@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, MessageCircle, Images, Terminal, Download } from 'lucide-react';
+import { User, MessageCircle, Images, CalendarDays, Terminal, Download } from 'lucide-react';
 import type { NavSection, SafeUser } from '../../types';
 import { CboxLogo } from '../ui/CboxLogo';
 import { Avatar } from '../ui/Avatar';
@@ -32,12 +32,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: pendingRequestCount > 0 ? pendingRequestCount : undefined,
     },
     { id: 'posts', label: 'Posts', icon: <Images className="h-5 w-5" /> },
+    { id: 'events', label: 'Events', icon: <CalendarDays className="h-5 w-5" /> },
   ];
 
   if (isDeveloper) {
     items.push({
       id: 'developer',
-      label: 'Developer Space',
+      label: 'Developer Control',
       icon: <Terminal className="h-5 w-5" />,
     });
   }
@@ -88,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border border-cbox-accent/40 text-cbox-accent hover:bg-cbox-accent/10 transition"
           >
             <Download className="h-4 w-4" />
-            Install Cbox App
+            Install Chatterbox
           </button>
         )}
 
