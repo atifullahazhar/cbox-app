@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -47,6 +48,7 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
     return;
   }
 
+  try { if (parsed.data.username) assertSafeText(parsed.data.username); if (parsed.data.primaryNickname) assertSafeText(parsed.data.primaryNickname); if (parsed.data.bio) assertSafeText(parsed.data.bio); if (parsed.data.alternateNicknames) parsed.data.alternateNicknames.forEach((a) => assertSafeText(a)); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
   const updateData: Prisma.UserUpdateInput = {};
 
   if (parsed.data.username !== undefined) {
@@ -94,6 +96,7 @@ async function handleProfileImageUpload(req: AuthenticatedRequest, res: any, pur
     const stored = await processAndStoreImage({
       buffer: req.file.buffer,
       declaredMimeType: req.file.mimetype,
+      originalFilename: req.file.originalname,
       ownerId: req.auth!.user.id,
       purpose: purpose === 'AVATAR' ? MediaPurpose.AVATAR : MediaPurpose.BANNER,
     });

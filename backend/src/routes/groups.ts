@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -84,6 +85,7 @@ groupsRouter.post('/', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Group name (2–64 chars) is required.' });
     return;
   }
+  try { const d: any = parsed.data; if (d.name) assertSafeText(d.name); if (d.description) assertSafeText(d.description); if (d.content) assertSafeText(d.content); if (d.question) assertSafeText(d.question); if (Array.isArray(d.options)) d.options.forEach((o: string) => assertSafeText(o)); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const uniqueMembers = Array.from(new Set(parsed.data.memberIds.filter((id) => id !== viewerId)));
@@ -212,6 +214,7 @@ groupsRouter.post('/:id/messages', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Message cannot be empty.' });
     return;
   }
+  try { const d: any = parsed.data; if (d.name) assertSafeText(d.name); if (d.description) assertSafeText(d.description); if (d.content) assertSafeText(d.content); if (d.question) assertSafeText(d.question); if (Array.isArray(d.options)) d.options.forEach((o: string) => assertSafeText(o)); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const members = await prisma.groupMember.findMany({
@@ -253,6 +256,7 @@ groupsRouter.post('/:id/polls', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Provide a question and 2–6 poll options.' });
     return;
   }
+  try { const d: any = parsed.data; if (d.name) assertSafeText(d.name); if (d.description) assertSafeText(d.description); if (d.content) assertSafeText(d.content); if (d.question) assertSafeText(d.question); if (Array.isArray(d.options)) d.options.forEach((o: string) => assertSafeText(o)); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const members = await prisma.groupMember.findMany({
@@ -289,6 +293,7 @@ groupsRouter.post('/polls/:pollId/vote', async (req: AuthenticatedRequest, res) 
     res.status(400).json({ error: 'Invalid option index.' });
     return;
   }
+  try { const d: any = parsed.data; if (d.name) assertSafeText(d.name); if (d.description) assertSafeText(d.description); if (d.content) assertSafeText(d.content); if (d.question) assertSafeText(d.question); if (Array.isArray(d.options)) d.options.forEach((o: string) => assertSafeText(o)); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const poll = await prisma.groupPoll.findUnique({ where: { id: req.params.pollId } });

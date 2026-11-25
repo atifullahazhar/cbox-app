@@ -72,8 +72,8 @@ model User {
   id                  String          @id @default(cuid())
   usernameNormalized  String          @unique @db.VarChar(24)
   usernameDisplay     String          @db.VarChar(24)
-  phoneNormalized     String          @unique @db.VarChar(20)
-  phoneVerifiedAt     DateTime        @default(now())
+  phoneNormalized     String?         @unique @db.VarChar(20)
+  phoneVerifiedAt     DateTime?
   signupDeviceHash    String?         @unique @db.VarChar(64)
   passwordHash        String
   secretPinHash       String?

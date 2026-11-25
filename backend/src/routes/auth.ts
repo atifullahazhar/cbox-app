@@ -14,11 +14,11 @@ import {
 } from '../utils/security.js';
 import {
   pyHashPassword,
-  pyNormalizePhone,
   pyTotpSetup,
   pyTotpVerify,
   pyVerifyPassword,
 } from '../services/pythonAuth.js';
+import { assertSafeText } from '../services/moderation.js';
 import {
   type AuthenticatedRequest,
   clearAuthCookies,
@@ -108,6 +108,7 @@ authRouter.get('/check-username', async (req, res) => {
   const raw = typeof req.query.username === 'string' ? req.query.username : '';
   try {
     const { normalized } = normalizeUsername(raw);
+    assertSafeText(normalized);
     const exists = await prisma.user.findUnique({ where: { usernameNormalized: normalized }, select: { id: true } });
     res.json({ available: !exists, normalized });
   } catch (err) {
@@ -115,12 +116,11 @@ authRouter.get('/check-username', async (req, res) => {
   }
 });
 
-// Direct Normal Sign-Up (NO OTP) with strict 1-Device = 1-Account + 1-Phone = 1-Account Lock
+// Single-Form Sign-Up (NO Mobile Number, NO OTP) with strict 1-Device = 1-Account Lock
 authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   const schema = z.object({
-    phone: z.string().min(6, 'Enter a valid mobile number.').max(24),
-    primaryNickname: z.string().trim().min(1, 'Nickname is required.').max(48),
     username: z.string().min(3).max(24),
+    primaryNickname: z.string().trim().min(1, 'Nickname is required.').max(48),
     dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid Date of Birth.'),
     password: z.string().min(8).max(128),
     confirmPassword: z.string().min(8).max(128),
@@ -163,14 +163,6 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
     return;
   }
 
-  let phoneNormalized: string;
-  try {
-    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid mobile number.' });
-    return;
-  }
-
   const dobDate = new Date(`${parsed.data.dateOfBirth}T00:00:00.000Z`);
   if (Number.isNaN(dobDate.getTime()) || dobDate > new Date()) {
     res.status(400).json({ error: 'Enter a valid past Date of Birth.' });
@@ -181,6 +173,8 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   let normalized: string;
   try {
     ({ display, normalized } = normalizeUsername(parsed.data.username));
+    assertSafeText(display);
+    assertSafeText(parsed.data.primaryNickname);
     validatePasswordStrength(parsed.data.password);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid signup details.' });
@@ -202,8 +196,6 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   try {
     const user = await prisma.user.create({
       data: {
-        phoneNormalized,
-        phoneVerifiedAt: new Date(),
         signupDeviceHash,
         usernameNormalized: normalized,
         usernameDisplay: display,
@@ -237,7 +229,7 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       res.status(409).json({
-        error: 'This device, mobile number, or username is already registered. Only 1 account per device is allowed.',
+        error: 'This device or username is already registered. Only 1 account per device is allowed.',
       });
       return;
     }
@@ -245,36 +237,29 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   }
 });
 
-// Log In: Phone or Username + Password (+ optional Developer Code & 2FA)
+// Log In: Username + Password (+ optional Developer Code & 2FA)
 authRouter.post('/login', authLoginLimiter, async (req, res) => {
   const schema = z.object({
-    identifier: z.string().min(1).max(32),
+    username: z.string().min(1).max(32).optional(),
+    identifier: z.string().min(1).max(32).optional(),
     password: z.string().min(1).max(128),
     totpCode: z.string().length(6).optional(),
     developerCode: z.string().max(32).optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid credentials.' });
+  const rawUsername = (parsed.success ? parsed.data.username || parsed.data.identifier : '')?.trim() || '';
+  if (!parsed.success || !rawUsername) {
+    res.status(400).json({ error: 'Username and password are required.' });
     return;
   }
 
-  const rawId = parsed.data.identifier.trim();
-  let user = null;
-
-  if (/^[\d+\s\-()]{8,20}$/.test(rawId)) {
-    try {
-      const phoneNorm = await pyNormalizePhone(rawId);
-      user = await prisma.user.findUnique({ where: { phoneNormalized: phoneNorm } });
-    } catch {}
-  }
-  if (!user) {
-    user = await prisma.user.findUnique({ where: { usernameNormalized: rawId.toLowerCase() } });
-  }
+  let user = await prisma.user.findUnique({
+    where: { usernameNormalized: rawUsername.toLowerCase() },
+  });
 
   if (!user || !(await pyVerifyPassword(user.passwordHash, parsed.data.password))) {
     await recordAuditEvent({ actorId: user?.id ?? null, action: 'AUTH_LOGIN', outcome: 'FAILURE', ipAddress: req.ip });
-    res.status(401).json({ error: 'Invalid mobile number/username or password.' });
+    res.status(401).json({ error: 'Invalid username or password.' });
     return;
   }
 
@@ -311,38 +296,32 @@ authRouter.post('/login', authLoginLimiter, async (req, res) => {
   res.json({ user: toSelfUserDTO(user) });
 });
 
-// Forgot Password (No OTP — verifies Registered Mobile Number + Username + Date of Birth)
+// Forgot Password (NO Mobile Number — verifies Username + Date of Birth)
 authRouter.post('/forgot-password/reset', authLoginLimiter, async (req, res) => {
   const schema = z.object({
-    phone: z.string().min(6).max(24),
     username: z.string().min(3).max(24),
     dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     newPassword: z.string().min(8).max(128),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Mobile number, username, date of birth, and new password (8+ chars) are required.' });
+    res.status(400).json({ error: 'Username, date of birth, and new password (8+ chars) are required.' });
     return;
   }
 
-  let phoneNormalized: string;
   try {
-    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
     validatePasswordStrength(parsed.data.newPassword);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid input.' });
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid password.' });
     return;
   }
 
-  const user = await prisma.user.findUnique({ where: { phoneNormalized } });
+  const user = await prisma.user.findUnique({
+    where: { usernameNormalized: parsed.data.username.trim().toLowerCase() },
+  });
   const storedDob = user?.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : '';
-  if (
-    !user ||
-    user.usernameNormalized !== parsed.data.username.trim().toLowerCase() ||
-    !storedDob ||
-    storedDob !== parsed.data.dateOfBirth
-  ) {
-    res.status(401).json({ error: 'Account details do not match. Check your mobile number, username, and date of birth.' });
+  if (!user || !storedDob || storedDob !== parsed.data.dateOfBirth) {
+    res.status(401).json({ error: 'Username and Date of Birth do not match our records.' });
     return;
   }
 

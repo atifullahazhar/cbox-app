@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ArrowLeft,
-  ArrowRight,
+  AtSign,
   Calendar,
-  Check,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -12,13 +10,11 @@ import {
   Globe,
   KeyRound,
   Lock,
-  Phone,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Terminal,
   User,
-  AtSign,
   XCircle,
 } from 'lucide-react';
 import type { SafeUser } from '../types';
@@ -37,30 +33,6 @@ interface AuthScreenProps {
   onOpenInstallModal: () => void;
 }
 
-const COUNTRY_CODES = [
-  { code: '+91', label: 'IN +91' },
-  { code: '+1', label: 'US/CA +1' },
-  { code: '+44', label: 'UK +44' },
-  { code: '+971', label: 'UAE +971' },
-  { code: '+92', label: 'PK +92' },
-  { code: '+880', label: 'BD +880' },
-  { code: '+61', label: 'AU +61' },
-  { code: '+49', label: 'DE +49' },
-  { code: '+33', label: 'FR +33' },
-  { code: '+81', label: 'JP +81' },
-  { code: '+65', label: 'SG +65' },
-  { code: '+966', label: 'SA +966' },
-];
-
-const SIGNUP_STEPS = [
-  'Mobile Number',
-  'Nickname',
-  'Username',
-  'Birthday',
-  'Password',
-  'Visibility',
-];
-
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthenticated,
   isInstalledPwa,
@@ -75,8 +47,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [deviceFp, setDeviceFp] = useState<string>('');
   const [deviceLocked, setDeviceLocked] = useState<boolean>(isLocallyMarkedDeviceLocked());
 
-  // ---------------- LOG-IN STATE ----------------
-  const [identifier, setIdentifier] = useState('');
+  // ---------------- LOG-IN STATE (Username + Password) ----------------
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPw, setShowLoginPw] = useState(false);
   const [showLoginDevCode, setShowLoginDevCode] = useState(false);
@@ -84,14 +56,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [requires2fa, setRequires2fa] = useState(false);
   const [totpCode, setTotpCode] = useState('');
 
-  // ---------------- 6-STEP NORMAL SIGN-UP WIZARD (NO OTP) ----------------
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
-  const [countryCode, setCountryCode] = useState('+91');
-  const [mobileDigits, setMobileDigits] = useState('');
-  const [primaryNickname, setPrimaryNickname] = useState('');
+  // ---------------- SINGLE-FORM SIGN-UP STATE (NO MOBILE, NO STEPS) ----------------
   const [username, setUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [usernameMsg, setUsernameMsg] = useState<string | null>(null);
+  const [primaryNickname, setPrimaryNickname] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -99,10 +68,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [isPrivateProfile, setIsPrivateProfile] = useState(false);
   const [signupDevCode, setSignupDevCode] = useState('');
 
-  // ---------------- FORGOT PASSWORD MODAL (NO OTP) ----------------
+  // ---------------- FORGOT PASSWORD MODAL (Username + DOB) ----------------
   const [forgotOpen, setForgotOpen] = useState(false);
-  const [fpCountry, setFpCountry] = useState('+91');
-  const [fpPhone, setFpPhone] = useState('');
   const [fpUsername, setFpUsername] = useState('');
   const [fpDob, setFpDob] = useState('');
   const [fpNewPassword, setFpNewPassword] = useState('');
@@ -135,9 +102,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     };
   }, []);
 
-  // Live username availability check on Step 3
+  // Live username availability check
   useEffect(() => {
-    if (mode !== 'signup' || step !== 3) return;
+    if (mode !== 'signup') return;
     const trimmed = username.trim();
     if (!trimmed) {
       setUsernameStatus('idle');
@@ -157,7 +124,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         );
         if (res.available) {
           setUsernameStatus('available');
-          setUsernameMsg('Username is available!');
+          setUsernameMsg('Username available!');
         } else {
           setUsernameStatus(res.error ? 'invalid' : 'taken');
           setUsernameMsg(res.error || 'That username is already taken.');
@@ -167,7 +134,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       }
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [username, mode, step]);
+  }, [username, mode]);
 
   function switchMode(next: 'login' | 'signup') {
     setMode(next);
@@ -177,7 +144,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setTotpCode('');
   }
 
-  // ---------------- HANDLERS: LOG-IN ----------------
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -185,7 +151,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setBusy(true);
     try {
       const payload: Record<string, string> = {
-        identifier: identifier.trim(),
+        username: loginUsername.trim(),
         password: loginPassword,
       };
       if (requires2fa && totpCode.trim()) payload.totpCode = totpCode.trim();
@@ -208,58 +174,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   }
 
-  // ---------------- HANDLERS: NORMAL SIGN-UP WIZARD ----------------
-  function handleNextStep(e: React.FormEvent) {
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (step === 1) {
-      const digits = mobileDigits.replace(/\D/g, '');
-      if (digits.length < 7 || digits.length > 15) {
-        setError('Enter a valid mobile number.');
-        return;
-      }
-      setStep(2);
-    } else if (step === 2) {
-      if (!primaryNickname.trim()) {
-        setError('Please enter your nickname.');
-        return;
-      }
-      setStep(3);
-    } else if (step === 3) {
-      if (usernameStatus !== 'available') {
-        setError(usernameMsg || 'Choose an available username to continue.');
-        return;
-      }
-      setStep(4);
-    } else if (step === 4) {
-      if (!dateOfBirth) {
-        setError('Please select your Date of Birth.');
-        return;
-      }
-      setStep(5);
-    } else if (step === 5) {
-      if (signupPassword.length < 8) {
-        setError('Password must be at least 8 characters long.');
-        return;
-      }
-      if (signupPassword !== confirmPassword) {
-        setError('Password and Confirm Password do not match.');
-        return;
-      }
-      setStep(6);
+    if (usernameStatus === 'taken' || usernameStatus === 'invalid') {
+      setError(usernameMsg || 'Please choose a valid, available username.');
+      return;
     }
-  }
+    if (signupPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (signupPassword !== confirmPassword) {
+      setError('Password and Confirm Password do not match.');
+      return;
+    }
 
-  async function handleCompleteSignup(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
     setBusy(true);
     try {
       const fp = deviceFp || (await getDeviceFingerprint());
       const payload: Record<string, unknown> = {
-        phone: `${countryCode}${mobileDigits.replace(/\D/g, '')}`,
-        primaryNickname: primaryNickname.trim(),
         username: username.trim(),
+        primaryNickname: primaryNickname.trim(),
         dateOfBirth,
         password: signupPassword,
         confirmPassword,
@@ -287,7 +223,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   }
 
-  // ---------------- HANDLERS: FORGOT PASSWORD (NO OTP) ----------------
   async function handleResetPassword(e: React.FormEvent) {
     e.preventDefault();
     setFpError(null);
@@ -297,7 +232,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const res = await apiFetch<{ ok: boolean; message: string }>('/api/auth/forgot-password/reset', {
         method: 'POST',
         body: JSON.stringify({
-          phone: `${fpCountry}${fpPhone.replace(/\D/g, '')}`,
           username: fpUsername.trim(),
           dateOfBirth: fpDob,
           newPassword: fpNewPassword,
@@ -325,7 +259,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <div className="flex items-center justify-between px-1">
                 <CboxLogo size={26} />
                 <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-cbox-accent/15 text-cbox-accent">
-                  Live v4
+                  Safe v5
                 </span>
               </div>
               <div className="rounded-2xl p-3.5 bg-gradient-to-br from-cbox-accent/20 via-cbox-violet/15 to-transparent border border-cbox-border/70 space-y-2">
@@ -333,7 +267,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <Sparkles className="h-3.5 w-3.5 text-cbox-accent" /> 10 Animated Themes
                 </p>
                 <p className="text-[11px] text-cbox-muted leading-relaxed">
-                  Cherry Blossom petals, Neon Cyber, Aurora Glow & more — ultra-smooth real-time chats, events, and voice/video calls.
+                  Cherry Blossom petals, Neon Cyber, Aurora Glow & more — smooth real-time chats, public events, and built-in anti-NSFW safety shield.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -343,9 +277,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <p className="text-cbox-muted text-[10px]">Strict device lock</p>
                 </div>
                 <div className="p-3 rounded-xl bg-cbox-elevated/80 border border-cbox-border">
-                  <Calendar className="h-4 w-4 text-cbox-violet mb-1" />
-                  <p className="font-semibold text-cbox-text">Public Events</p>
-                  <p className="text-cbox-muted text-[10px]">Meetups, Gaming & more</p>
+                  <Lock className="h-4 w-4 text-cbox-violet mb-1" />
+                  <p className="font-semibold text-cbox-text">Safety Shield</p>
+                  <p className="text-cbox-muted text-[10px]">Zero abuse / NSFW</p>
                 </div>
               </div>
             </div>
@@ -362,17 +296,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
         </div>
 
-        {/* Right: Auth Card (Log In or 6-Step Normal Sign Up) */}
+        {/* Right: Auth Card (Log In or Direct Single-Form Sign Up) */}
         <div className="w-full max-w-md mx-auto">
-          <div className="rounded-3xl border border-cbox-border bg-cbox-surface/95 backdrop-blur-xl shadow-2xl p-6 sm:p-8 space-y-6">
-            <div className="flex flex-col items-center text-center space-y-2">
-              <CboxLogo size={38} />
+          <div className="rounded-3xl border border-cbox-border bg-cbox-surface/95 backdrop-blur-xl shadow-2xl p-6 sm:p-7 space-y-5">
+            <div className="flex flex-col items-center text-center space-y-1.5">
+              <CboxLogo size={36} />
               <p className="text-xs text-cbox-muted">
                 {mode === 'login'
-                  ? 'Log in with your phone number or username'
+                  ? 'Log in with your username and password'
                   : deviceLocked
                   ? '1 account per device limit reached'
-                  : `Create your Chatterbox ID · Step ${step} of 6`}
+                  : 'Create your Chatterbox account (1 Device = 1 ID)'}
               </p>
             </div>
 
@@ -410,19 +344,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
             )}
 
-            {/* ===================== LOG-IN FORM ===================== */}
+            {/* ===================== LOG-IN FORM (Username + Password) ===================== */}
             {mode === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-cbox-muted">Phone Number or Username</label>
+                  <label className="text-xs font-semibold text-cbox-muted">Username</label>
                   <div className="relative">
-                    <User className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <AtSign className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       required
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      placeholder="+919876543210 or username"
+                      value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value.replace(/\s+/g, ''))}
+                      placeholder="Enter your username"
                       className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
                     />
                   </div>
@@ -532,334 +466,178 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </button>
               </div>
             ) : (
-              /* ===================== 6-STEP NORMAL SIGN-UP WIZARD (NO OTP) ===================== */
-              <div className="space-y-5">
-                {/* Progress Bar */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-cbox-muted">
-                    <span>{SIGNUP_STEPS[step - 1]}</span>
-                    <span>{step} / 6</span>
+              /* ===================== DIRECT SINGLE-FORM SIGN-UP ===================== */
+              <form onSubmit={handleSignup} className="space-y-3.5">
+                {/* 1. Username */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-cbox-muted">Username</label>
+                  <div className="relative">
+                    <AtSign className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      required
+                      minLength={3}
+                      maxLength={24}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value.replace(/\s+/g, ''))}
+                      placeholder="your_username"
+                      className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-10 py-2 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {usernameStatus === 'available' && <CheckCircle2 className="h-4 w-4 text-cbox-success" />}
+                      {(usernameStatus === 'taken' || usernameStatus === 'invalid') && (
+                        <XCircle className="h-4 w-4 text-cbox-danger" />
+                      )}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-6 gap-1.5">
-                    {[1, 2, 3, 4, 5, 6].map((n) => (
-                      <div
-                        key={n}
-                        className={`h-1.5 rounded-full transition-all ${
-                          n <= step ? 'bg-cbox-accent' : 'bg-cbox-elevated'
-                        }`}
-                      />
-                    ))}
+                  {usernameMsg && (
+                    <p
+                      className={`text-[11px] font-medium ${
+                        usernameStatus === 'available' ? 'text-cbox-success' : 'text-cbox-danger'
+                      }`}
+                    >
+                      {usernameMsg}
+                    </p>
+                  )}
+                </div>
+
+                {/* 2. Nickname */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-cbox-muted">Nickname</label>
+                  <div className="relative">
+                    <User className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      required
+                      maxLength={48}
+                      value={primaryNickname}
+                      onChange={(e) => setPrimaryNickname(e.target.value)}
+                      placeholder="Display name (e.g. Atif, Maya)"
+                      className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-3.5 py-2 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
+                    />
                   </div>
                 </div>
 
-                {/* STEP 1: Country Code + Mobile Number (NO OTP) */}
-                {step === 1 && (
-                  <form onSubmit={handleNextStep} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">
-                        Mobile Number (1 Device = 1 Account)
-                      </label>
-                      <div className="flex gap-2">
-                        <select
-                          value={countryCode}
-                          onChange={(e) => setCountryCode(e.target.value)}
-                          className="rounded-xl bg-cbox-elevated border border-cbox-border px-2.5 py-2.5 text-xs font-semibold text-cbox-text focus:outline-none focus:border-cbox-accent"
-                        >
-                          {COUNTRY_CODES.map((c) => (
-                            <option key={c.code} value={c.code}>
-                              {c.label}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="relative flex-1">
-                          <Phone className="h-4 w-4 text-cbox-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                          <input
-                            type="tel"
-                            inputMode="numeric"
-                            required
-                            autoFocus
-                            value={mobileDigits}
-                            onChange={(e) => setMobileDigits(e.target.value.replace(/[^\d\s-]/g, ''))}
-                            placeholder="9876543210"
-                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-9 pr-3 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
-                          />
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-cbox-muted">
-                        No OTP needed. Each device and mobile number can only create 1 Chatterbox ID.
-                      </p>
-                    </div>
+                {/* 3. Date of Birth */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-cbox-muted">Date of Birth</label>
+                  <div className="relative">
+                    <Calendar className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="date"
+                      required
+                      max={todayIso}
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-3.5 py-2 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
+                    />
+                  </div>
+                </div>
 
-                    <button
-                      type="submit"
-                      disabled={mobileDigits.replace(/\D/g, '').length < 7}
-                      className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
-                    >
-                      Continue <ArrowRight className="h-4 w-4" />
-                    </button>
-                  </form>
-                )}
-
-                {/* STEP 2: Nickname */}
-                {step === 2 && (
-                  <form onSubmit={handleNextStep} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">What should friends call you? (Nickname)</label>
+                {/* 4. Password & Confirm Password */}
+                <div className="grid sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-cbox-muted">Password</label>
+                    <div className="relative">
+                      <Lock className="h-3.5 w-3.5 text-cbox-muted absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
-                        type="text"
+                        type={showSignupPw ? 'text' : 'password'}
                         required
-                        maxLength={48}
-                        autoFocus
-                        value={primaryNickname}
-                        onChange={(e) => setPrimaryNickname(e.target.value)}
-                        placeholder="e.g. Atif, Maya, Alex"
-                        className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
+                        minLength={8}
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        placeholder="8+ chars"
+                        className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-8 pr-8 py-2 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
                       />
-                    </div>
-                    <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setStep(1)}
-                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
+                        onClick={() => setShowSignupPw((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-cbox-muted"
                       >
-                        <ArrowLeft className="h-4 w-4" /> Back
-                      </button>
-                      <button
-                        type="submit"
-                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2"
-                      >
-                        Continue <ArrowRight className="h-4 w-4" />
+                        {showSignupPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
                     </div>
-                  </form>
-                )}
-
-                {/* STEP 3: Unique Username */}
-                {step === 3 && (
-                  <form onSubmit={handleNextStep} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">Choose a unique Username</label>
-                      <div className="relative">
-                        <AtSign className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          required
-                          minLength={3}
-                          maxLength={24}
-                          autoFocus
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value.replace(/\s+/g, ''))}
-                          placeholder="your_username"
-                          className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-10 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                          {usernameStatus === 'available' && <CheckCircle2 className="h-4 w-4 text-cbox-success" />}
-                          {(usernameStatus === 'taken' || usernameStatus === 'invalid') && (
-                            <XCircle className="h-4 w-4 text-cbox-danger" />
-                          )}
-                        </span>
-                      </div>
-                      {usernameMsg && (
-                        <p
-                          className={`text-[11px] font-medium ${
-                            usernameStatus === 'available' ? 'text-cbox-success' : 'text-cbox-danger'
-                          }`}
-                        >
-                          {usernameMsg}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setStep(2)}
-                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
-                      >
-                        <ArrowLeft className="h-4 w-4" /> Back
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={usernameStatus !== 'available'}
-                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
-                      >
-                        Continue <ArrowRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* STEP 4: Date of Birth */}
-                {step === 4 && (
-                  <form onSubmit={handleNextStep} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">Date of Birth</label>
-                      <div className="relative">
-                        <Calendar className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="date"
-                          required
-                          max={todayIso}
-                          value={dateOfBirth}
-                          onChange={(e) => setDateOfBirth(e.target.value)}
-                          className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setStep(3)}
-                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
-                      >
-                        <ArrowLeft className="h-4 w-4" /> Back
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={!dateOfBirth}
-                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
-                      >
-                        Continue <ArrowRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* STEP 5: Password + Confirm Password */}
-                {step === 5 && (
-                  <form onSubmit={handleNextStep} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">Create Password (8+ characters)</label>
-                      <div className="relative">
-                        <Lock className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type={showSignupPw ? 'text' : 'password'}
-                          required
-                          minLength={8}
-                          value={signupPassword}
-                          onChange={(e) => setSignupPassword(e.target.value)}
-                          placeholder="Enter strong password"
-                          className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-10 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowSignupPw((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-cbox-muted"
-                        >
-                          {showSignupPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">Confirm Password</label>
-                      <div className="relative">
-                        <KeyRound className="h-4 w-4 text-cbox-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type={showSignupPw ? 'text' : 'password'}
-                          required
-                          minLength={8}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="Re-enter password"
-                          className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-10 pr-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
-                        />
-                      </div>
-                      {confirmPassword && signupPassword !== confirmPassword && (
-                        <p className="text-[11px] text-cbox-danger font-medium">Passwords do not match.</p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setStep(4)}
-                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
-                      >
-                        <ArrowLeft className="h-4 w-4" /> Back
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={signupPassword.length < 8 || signupPassword !== confirmPassword}
-                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
-                      >
-                        Continue <ArrowRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* STEP 6: Public/Private Profile + Optional Developer Code */}
-                {step === 6 && (
-                  <form onSubmit={handleCompleteSignup} className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-cbox-muted">Profile Visibility</label>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => setIsPrivateProfile(false)}
-                          className={`p-3 rounded-2xl border text-left transition ${
-                            !isPrivateProfile
-                              ? 'border-cbox-accent bg-cbox-accent/15 ring-1 ring-cbox-accent'
-                              : 'border-cbox-border bg-cbox-elevated/50'
-                          }`}
-                        >
-                          <Globe className="h-5 w-5 text-cbox-accent mb-1.5" />
-                          <p className="text-xs font-bold text-cbox-text">Public</p>
-                          <p className="text-[10px] text-cbox-muted">Anyone can view public posts</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsPrivateProfile(true)}
-                          className={`p-3 rounded-2xl border text-left transition ${
-                            isPrivateProfile
-                              ? 'border-cbox-violet bg-cbox-violet/15 ring-1 ring-cbox-violet'
-                              : 'border-cbox-border bg-cbox-elevated/50'
-                          }`}
-                        >
-                          <Lock className="h-5 w-5 text-cbox-violet mb-1.5" />
-                          <p className="text-xs font-bold text-cbox-text">Private</p>
-                          <p className="text-[10px] text-cbox-muted">Only approved friends see posts</p>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5 pt-1">
-                      <label className="text-xs font-semibold text-cbox-muted flex items-center gap-1.5">
-                        <Terminal className="h-3.5 w-3.5 text-cbox-violet" /> Developer Code (Optional)
-                      </label>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-cbox-muted">Confirm Password</label>
+                    <div className="relative">
+                      <KeyRound className="h-3.5 w-3.5 text-cbox-muted absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
-                        type="password"
-                        maxLength={32}
-                        value={signupDevCode}
-                        onChange={(e) => setSignupDevCode(e.target.value)}
-                        placeholder="Leave blank for standard account"
-                        className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-xs font-mono tracking-wider text-cbox-text focus:outline-none focus:border-cbox-violet"
+                        type={showSignupPw ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter"
+                        className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-8 pr-3 py-2 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
                       />
-                      <p className="text-[10px] text-cbox-muted">
-                        Valid 8-character developer code unlocks the Developer Control dashboard.
-                      </p>
                     </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setStep(5)}
-                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
-                      >
-                        <ArrowLeft className="h-4 w-4" /> Back
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={busy}
-                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-                      >
-                        <Check className="h-4 w-4" />
-                        {busy ? 'Creating Account…' : 'Create Account'}
-                      </button>
-                    </div>
-                  </form>
+                  </div>
+                </div>
+                {confirmPassword && signupPassword !== confirmPassword && (
+                  <p className="text-[11px] text-cbox-danger font-medium">Passwords do not match.</p>
                 )}
-              </div>
+
+                {/* 5. Profile Visibility: Public or Private */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-cbox-muted">Profile Visibility</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPrivateProfile(false)}
+                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition ${
+                        !isPrivateProfile
+                          ? 'border-cbox-accent bg-cbox-accent/15 ring-1 ring-cbox-accent'
+                          : 'border-cbox-border bg-cbox-elevated/50'
+                      }`}
+                    >
+                      <Globe className="h-4 w-4 text-cbox-accent shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-cbox-text">Public</p>
+                        <p className="text-[10px] text-cbox-muted">Open profile</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPrivateProfile(true)}
+                      className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition ${
+                        isPrivateProfile
+                          ? 'border-cbox-violet bg-cbox-violet/15 ring-1 ring-cbox-violet'
+                          : 'border-cbox-border bg-cbox-elevated/50'
+                      }`}
+                    >
+                      <Lock className="h-4 w-4 text-cbox-violet shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-cbox-text">Private</p>
+                        <p className="text-[10px] text-cbox-muted">Friends only</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6. Developer Code (Optional) */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-cbox-muted flex items-center gap-1.5">
+                    <Terminal className="h-3.5 w-3.5 text-cbox-violet" /> Developer Code (Optional)
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={32}
+                    value={signupDevCode}
+                    onChange={(e) => setSignupDevCode(e.target.value)}
+                    placeholder="Leave blank for standard account"
+                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-xs font-mono tracking-wider text-cbox-text focus:outline-none focus:border-cbox-violet"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm hover:opacity-95 transition disabled:opacity-50"
+                >
+                  {busy ? 'Creating Account…' : 'Create Account'}
+                </button>
+              </form>
             )}
 
             {!isInstalledPwa && (
@@ -877,12 +655,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </div>
 
-      {/* Forgot Password Modal (No OTP — verifies Mobile + Username + DOB) */}
+      {/* Forgot Password Modal (Username + DOB) */}
       <Modal
         open={forgotOpen}
         onClose={() => setForgotOpen(false)}
         title="Reset Password"
-        description="Verify your registered mobile number, username, and date of birth."
+        description="Verify your username and date of birth to set a new password."
       >
         <form onSubmit={handleResetPassword} className="space-y-3.5">
           {fpError && (
@@ -895,28 +673,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               {fpSuccess}
             </div>
           )}
-
-          <div className="flex gap-2">
-            <select
-              value={fpCountry}
-              onChange={(e) => setFpCountry(e.target.value)}
-              className="rounded-xl bg-cbox-elevated border border-cbox-border px-2.5 py-2 text-xs text-cbox-text"
-            >
-              {COUNTRY_CODES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="tel"
-              required
-              value={fpPhone}
-              onChange={(e) => setFpPhone(e.target.value.replace(/[^\d\s-]/g, ''))}
-              placeholder="Registered mobile number"
-              className="flex-1 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
-            />
-          </div>
 
           <input
             type="text"

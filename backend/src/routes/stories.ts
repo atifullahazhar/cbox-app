@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -103,6 +104,7 @@ storiesRouter.post('/', uploadLimiter, upload.single('image'), async (req: Authe
     return;
   }
 
+  try { assertSafeText(parsed.data.textContent); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
   if (!req.file && !parsed.data.textContent) {
     res.status(400).json({ error: 'Add a photo or write text for your story.' });
     return;
@@ -120,6 +122,7 @@ storiesRouter.post('/', uploadLimiter, upload.single('image'), async (req: Authe
       const stored = await processAndStoreImage({
         buffer: req.file.buffer,
         declaredMimeType: req.file.mimetype,
+        originalFilename: req.file.originalname,
         ownerId: req.auth!.user.id,
         purpose: MediaPurpose.STORY_IMAGE,
       });

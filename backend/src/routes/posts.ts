@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -120,11 +121,13 @@ postsRouter.post('/', uploadLimiter, upload.single('image'), async (req: Authent
     res.status(400).json({ error: 'Please select a valid audience (Friends only or Public).' });
     return;
   }
+  try { if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   try {
     const stored = await processAndStoreImage({
       buffer: req.file.buffer,
       declaredMimeType: req.file.mimetype,
+      originalFilename: req.file.originalname,
       ownerId: req.auth!.user.id,
       purpose: MediaPurpose.POST_IMAGE,
     });
@@ -165,6 +168,7 @@ postsRouter.patch('/:id', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Invalid post update.' });
     return;
   }
+  try { if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const existing = await prisma.post.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.deletedAt !== null) {
@@ -274,6 +278,7 @@ postsRouter.post('/:id/comments', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Comment cannot be empty.' });
     return;
   }
+  try { if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const post = await prisma.post.findUnique({ where: { id: req.params.id } });

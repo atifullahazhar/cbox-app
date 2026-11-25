@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { MediaPurpose } from '@prisma/client';
 import { env } from '../config/env.js';
+import { assertSafeImageBuffer } from './moderation.js';
 
 const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_AUDIO_MIMES = new Set([
@@ -65,6 +66,7 @@ export async function processAndStoreImage(params: {
   declaredMimeType: string;
   ownerId: string;
   purpose: MediaPurpose;
+  originalFilename?: string;
 }): Promise<{
   storageKey: string;
   mimeType: string;
@@ -72,12 +74,18 @@ export async function processAndStoreImage(params: {
   width: number;
   height: number;
 }> {
+  if (params.declaredMimeType.startsWith('video/')) {
+    throw new Error('Blocked by Chatterbox Safety Filter: Video uploads are strictly disabled.');
+  }
   if (!ALLOWED_IMAGE_MIMES.has(params.declaredMimeType)) {
     throw new Error('Unsupported image type. Allowed formats: JPEG, PNG, WebP.');
   }
   if (params.buffer.length === 0 || params.buffer.length > env.maxUploadBytes) {
     throw new Error(`Image exceeds maximum allowed size (${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).`);
   }
+
+  // Enforce anti-NSFW / explicit image safety screening before storing
+  await assertSafeImageBuffer(params.buffer, params.originalFilename);
 
   const dims = IMAGE_DIMENSIONS[params.purpose] || { maxWidth: 1600, maxHeight: 1600 };
   const pipeline = sharp(params.buffer, { failOn: 'error', limitInputPixels: 40_000_000 });

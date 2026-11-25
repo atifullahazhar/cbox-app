@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { EventRsvpStatus, UserRole } from '@prisma/client';
@@ -76,6 +77,7 @@ eventsRouter.post('/', async (req: AuthenticatedRequest, res) => {
     return;
   }
 
+  try { assertSafeText(parsed.data.title); assertSafeText(parsed.data.description); assertSafeText(parsed.data.location); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
   const startsAt = new Date(parsed.data.startsAt);
   if (Number.isNaN(startsAt.getTime())) {
     res.status(400).json({ error: 'Invalid event date/time.' });

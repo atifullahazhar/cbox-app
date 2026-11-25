@@ -1,3 +1,4 @@
+import { assertSafeText } from '../services/moderation.js';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -177,6 +178,7 @@ chatRouter.patch('/conversations/:id/vault', async (req: AuthenticatedRequest, r
     res.status(400).json({ error: 'Invalid vault state.' });
     return;
   }
+  try { if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   if (parsed.data.hidden && !req.auth!.user.secretPinHash) {
@@ -271,6 +273,7 @@ chatRouter.post('/conversations/:id/messages', async (req: AuthenticatedRequest,
     res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid message.' });
     return;
   }
+  try { if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const conversation = await prisma.conversation.findUnique({ where: { id: req.params.id } });
@@ -369,11 +372,13 @@ chatRouter.post(
         ? await processAndStoreAudio({
             buffer: req.file.buffer,
             declaredMimeType: req.file.mimetype,
+        originalFilename: req.file.originalname,
             ownerId: viewerId,
           })
         : await processAndStoreImage({
             buffer: req.file.buffer,
             declaredMimeType: req.file.mimetype,
+        originalFilename: req.file.originalname,
             ownerId: viewerId,
             purpose: MediaPurpose.CHAT_IMAGE,
           });
@@ -433,6 +438,7 @@ chatRouter.patch('/messages/:id', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ error: 'Edited message cannot be empty.' });
     return;
   }
+  try { if ((parsed.data as any).content) assertSafeText((parsed.data as any).content); if ((parsed.data as any).caption) assertSafeText((parsed.data as any).caption); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : "Blocked by Safety Filter." }); return; }
 
   const viewerId = req.auth!.user.id;
   const existing = await prisma.message.findUnique({
