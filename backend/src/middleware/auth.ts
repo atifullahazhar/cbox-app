@@ -16,7 +16,7 @@ export interface AuthenticatedRequest extends Request {
       id: string;
       usernameDisplay: string;
       usernameNormalized: string;
-      phoneNormalized: string;
+      phoneNormalized: string | null;
       secretPinHash: string | null;
       totpSecret: string | null;
       totpEnabled: boolean;

@@ -122,6 +122,7 @@ export async function processAndStoreAudio(params: {
   buffer: Buffer;
   declaredMimeType: string;
   ownerId: string;
+  originalFilename?: string;
 }): Promise<{
   storageKey: string;
   mimeType: string;

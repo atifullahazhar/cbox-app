@@ -361,6 +361,7 @@ chatRouter.post(
 
     const isAudio = req.file.mimetype.startsWith('audio/');
     const caption = typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, 500) : '';
+    try { assertSafeText(caption); } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Blocked by Safety Filter.' }); return; }
     const replyToId = typeof req.body.replyToId === 'string' && req.body.replyToId ? req.body.replyToId : null;
     const expiresAt =
       conversation.disappearAfterSeconds > 0
