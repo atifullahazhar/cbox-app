@@ -13,6 +13,7 @@ import {
   KeyRound,
   Lock,
   Phone,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Terminal,
@@ -22,6 +23,11 @@ import {
 } from 'lucide-react';
 import type { SafeUser } from '../types';
 import { apiFetch } from '../lib/api';
+import {
+  getDeviceFingerprint,
+  isLocallyMarkedDeviceLocked,
+  markDeviceLocallyLocked,
+} from '../lib/device';
 import { CboxLogo } from '../components/ui/CboxLogo';
 import { Modal } from '../components/ui/Modal';
 
@@ -47,7 +53,7 @@ const COUNTRY_CODES = [
 ];
 
 const SIGNUP_STEPS = [
-  'Mobile OTP',
+  'Mobile Number',
   'Nickname',
   'Username',
   'Birthday',
@@ -65,6 +71,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // ---------------- 1-DEVICE = 1-ACCOUNT LOCK STATE ----------------
+  const [deviceFp, setDeviceFp] = useState<string>('');
+  const [deviceLocked, setDeviceLocked] = useState<boolean>(isLocallyMarkedDeviceLocked());
+
   // ---------------- LOG-IN STATE ----------------
   const [identifier, setIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -74,48 +84,56 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [requires2fa, setRequires2fa] = useState(false);
   const [totpCode, setTotpCode] = useState('');
 
-  // ---------------- 6-STEP SIGN-UP WIZARD STATE ----------------
+  // ---------------- 6-STEP NORMAL SIGN-UP WIZARD (NO OTP) ----------------
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
-  // Step 1: Country Code + Mobile + OTP Verification
   const [countryCode, setCountryCode] = useState('+91');
   const [mobileDigits, setMobileDigits] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpInput, setOtpInput] = useState('');
-  const [demoOtp, setDemoOtp] = useState<string | null>(null);
-  const [verificationToken, setVerificationToken] = useState<string | null>(null);
-  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
-
-  // Step 2: Nickname
   const [primaryNickname, setPrimaryNickname] = useState('');
-
-  // Step 3: Username + live availability
   const [username, setUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [usernameMsg, setUsernameMsg] = useState<string | null>(null);
-
-  // Step 4: Date of Birth
   const [dateOfBirth, setDateOfBirth] = useState('');
-
-  // Step 5: Password & Confirm Password
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showSignupPw, setShowSignupPw] = useState(false);
-
-  // Step 6: Public/Private Profile + Optional Developer Code
   const [isPrivateProfile, setIsPrivateProfile] = useState(false);
   const [signupDevCode, setSignupDevCode] = useState('');
 
-  // ---------------- FORGOT PASSWORD MODAL ----------------
+  // ---------------- FORGOT PASSWORD MODAL (NO OTP) ----------------
   const [forgotOpen, setForgotOpen] = useState(false);
   const [fpCountry, setFpCountry] = useState('+91');
   const [fpPhone, setFpPhone] = useState('');
-  const [fpOtpSent, setFpOtpSent] = useState(false);
-  const [fpOtp, setFpOtp] = useState('');
-  const [fpDemoOtp, setFpDemoOtp] = useState<string | null>(null);
+  const [fpUsername, setFpUsername] = useState('');
+  const [fpDob, setFpDob] = useState('');
   const [fpNewPassword, setFpNewPassword] = useState('');
   const [fpBusy, setFpBusy] = useState(false);
   const [fpError, setFpError] = useState<string | null>(null);
   const [fpSuccess, setFpSuccess] = useState<string | null>(null);
+
+  // Check server + hardware device lock on mount
+  useEffect(() => {
+    let active = true;
+    getDeviceFingerprint()
+      .then(async (fp) => {
+        if (!active) return;
+        setDeviceFp(fp);
+        try {
+          const res = await apiFetch<{ locked: boolean }>(
+            `/api/auth/device-status?fp=${encodeURIComponent(fp)}`
+          );
+          if (active && res.locked) {
+            setDeviceLocked(true);
+            markDeviceLocallyLocked();
+          }
+        } catch {
+          // Keep local lock state if offline
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Live username availability check on Step 3
   useEffect(() => {
@@ -190,64 +208,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   }
 
-  // ---------------- HANDLERS: SIGN-UP WIZARD ----------------
-  async function handleSendSignupOtp() {
-    setError(null);
-    setInfo(null);
-    const digits = mobileDigits.replace(/\D/g, '');
-    if (digits.length < 7 || digits.length > 15) {
-      setError('Enter a valid mobile number.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const fullPhone = `${countryCode}${digits}`;
-      const res = await apiFetch<{ ok: boolean; demoCode?: string; message?: string }>('/api/auth/otp/send', {
-        method: 'POST',
-        body: JSON.stringify({ phone: fullPhone, purpose: 'SIGNUP' }),
-      });
-      setOtpSent(true);
-      setDemoOtp(res.demoCode || null);
-      setInfo(res.message || 'OTP sent to your mobile number.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send OTP.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleVerifySignupOtp(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setInfo(null);
-    if (otpInput.trim().length !== 6) {
-      setError('Enter the 6-digit OTP sent to your phone.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const fullPhone = `${countryCode}${mobileDigits.replace(/\D/g, '')}`;
-      const res = await apiFetch<{ ok: boolean; phoneNormalized: string; verificationToken: string }>(
-        '/api/auth/otp/verify-signup',
-        {
-          method: 'POST',
-          body: JSON.stringify({ phone: fullPhone, otp: otpInput.trim() }),
-        }
-      );
-      setVerificationToken(res.verificationToken);
-      setVerifiedPhone(res.phoneNormalized);
-      setStep(2);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid or expired OTP.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  // ---------------- HANDLERS: NORMAL SIGN-UP WIZARD ----------------
   function handleNextStep(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (step === 2) {
+    if (step === 1) {
+      const digits = mobileDigits.replace(/\D/g, '');
+      if (digits.length < 7 || digits.length > 15) {
+        setError('Enter a valid mobile number.');
+        return;
+      }
+      setStep(2);
+    } else if (step === 2) {
       if (!primaryNickname.trim()) {
         setError('Please enter your nickname.');
         return;
@@ -281,21 +253,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   async function handleCompleteSignup(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!verificationToken) {
-      setError('Mobile verification expired. Please verify your phone again.');
-      setStep(1);
-      return;
-    }
     setBusy(true);
     try {
+      const fp = deviceFp || (await getDeviceFingerprint());
       const payload: Record<string, unknown> = {
-        verificationToken,
+        phone: `${countryCode}${mobileDigits.replace(/\D/g, '')}`,
         primaryNickname: primaryNickname.trim(),
         username: username.trim(),
         dateOfBirth,
         password: signupPassword,
         confirmPassword,
         isPrivateProfile,
+        deviceFingerprint: fp,
       };
       if (signupDevCode.trim()) payload.developerCode = signupDevCode.trim();
 
@@ -303,53 +272,38 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      markDeviceLocallyLocked();
+      setDeviceLocked(true);
       onAuthenticated(res.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create account.');
+      const msg = err instanceof Error ? err.message : 'Could not create account.';
+      setError(msg);
+      if (msg.toLowerCase().includes('this device')) {
+        markDeviceLocallyLocked();
+        setDeviceLocked(true);
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  // ---------------- HANDLERS: FORGOT PASSWORD ----------------
-  async function handleSendForgotOtp() {
-    setFpError(null);
-    setFpSuccess(null);
-    const digits = fpPhone.replace(/\D/g, '');
-    if (digits.length < 7) {
-      setFpError('Enter a valid mobile number.');
-      return;
-    }
-    setFpBusy(true);
-    try {
-      const res = await apiFetch<{ ok: boolean; demoCode?: string }>('/api/auth/otp/send', {
-        method: 'POST',
-        body: JSON.stringify({ phone: `${fpCountry}${digits}`, purpose: 'RESET_PASSWORD' }),
-      });
-      setFpOtpSent(true);
-      setFpDemoOtp(res.demoCode || null);
-    } catch (err) {
-      setFpError(err instanceof Error ? err.message : 'Failed to send reset OTP.');
-    } finally {
-      setFpBusy(false);
-    }
-  }
-
+  // ---------------- HANDLERS: FORGOT PASSWORD (NO OTP) ----------------
   async function handleResetPassword(e: React.FormEvent) {
     e.preventDefault();
     setFpError(null);
+    setFpSuccess(null);
     setFpBusy(true);
     try {
       const res = await apiFetch<{ ok: boolean; message: string }>('/api/auth/forgot-password/reset', {
         method: 'POST',
         body: JSON.stringify({
           phone: `${fpCountry}${fpPhone.replace(/\D/g, '')}`,
-          otp: fpOtp.trim(),
+          username: fpUsername.trim(),
+          dateOfBirth: fpDob,
           newPassword: fpNewPassword,
         }),
       });
       setFpSuccess(res.message || 'Password reset! You can now log in.');
-      setFpOtp('');
       setFpNewPassword('');
     } catch (err) {
       setFpError(err instanceof Error ? err.message : 'Password reset failed.');
@@ -363,7 +317,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   return (
     <div className="min-h-[100dvh] flex items-center justify-center p-4 sm:p-6 relative z-10">
       <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-8 items-center">
-        {/* Left: Instagram-style Phone Preview & Feature Showcase */}
+        {/* Left: Phone Preview & Feature Showcase */}
         <div className="hidden lg:flex flex-col items-center justify-center space-y-6 p-6">
           <div className="relative w-[310px] rounded-[42px] border-[6px] border-cbox-border bg-cbox-surface shadow-2xl p-4 overflow-hidden">
             <div className="w-24 h-5 rounded-full bg-cbox-bg mx-auto mb-4" />
@@ -385,8 +339,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <div className="p-3 rounded-xl bg-cbox-elevated/80 border border-cbox-border">
                   <ShieldCheck className="h-4 w-4 text-cbox-success mb-1" />
-                  <p className="font-semibold text-cbox-text">1 Phone = 1 ID</p>
-                  <p className="text-cbox-muted text-[10px]">Python OTP + Argon2id</p>
+                  <p className="font-semibold text-cbox-text">1 Device = 1 ID</p>
+                  <p className="text-cbox-muted text-[10px]">Strict device lock</p>
                 </div>
                 <div className="p-3 rounded-xl bg-cbox-elevated/80 border border-cbox-border">
                   <Calendar className="h-4 w-4 text-cbox-violet mb-1" />
@@ -408,7 +362,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
         </div>
 
-        {/* Right: Auth Card (Log In or 6-Step Sign Up) */}
+        {/* Right: Auth Card (Log In or 6-Step Normal Sign Up) */}
         <div className="w-full max-w-md mx-auto">
           <div className="rounded-3xl border border-cbox-border bg-cbox-surface/95 backdrop-blur-xl shadow-2xl p-6 sm:p-8 space-y-6">
             <div className="flex flex-col items-center text-center space-y-2">
@@ -416,6 +370,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <p className="text-xs text-cbox-muted">
                 {mode === 'login'
                   ? 'Log in with your phone number or username'
+                  : deviceLocked
+                  ? '1 account per device limit reached'
                   : `Create your Chatterbox ID · Step ${step} of 6`}
               </p>
             </div>
@@ -557,8 +513,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   {busy ? 'Signing in…' : 'Log In to Chatterbox'}
                 </button>
               </form>
+            ) : deviceLocked ? (
+              /* ===================== 1-DEVICE LOCKED NOTICE ===================== */
+              <div className="p-5 rounded-2xl border border-cbox-danger/35 bg-cbox-danger/10 text-center space-y-3">
+                <div className="h-11 w-11 rounded-2xl bg-cbox-danger/20 text-cbox-danger flex items-center justify-center mx-auto">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+                <h2 className="text-sm font-bold text-cbox-text">Account Already Exists on This Device</h2>
+                <p className="text-xs text-cbox-muted leading-relaxed">
+                  Only 1 Chatterbox account can be created per device. Please log in to your existing account.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => switchMode('login')}
+                  className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs"
+                >
+                  Go to Log In
+                </button>
+              </div>
             ) : (
-              /* ===================== 6-STEP SIGN-UP WIZARD ===================== */
+              /* ===================== 6-STEP NORMAL SIGN-UP WIZARD (NO OTP) ===================== */
               <div className="space-y-5">
                 {/* Progress Bar */}
                 <div className="space-y-1.5">
@@ -578,16 +552,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
                 </div>
 
-                {/* STEP 1: Country Code + Mobile Number + OTP Verification */}
+                {/* STEP 1: Country Code + Mobile Number (NO OTP) */}
                 {step === 1 && (
-                  <form onSubmit={handleVerifySignupOtp} className="space-y-4">
+                  <form onSubmit={handleNextStep} className="space-y-4">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-cbox-muted">Mobile Number (1 Phone = 1 Account)</label>
+                      <label className="text-xs font-semibold text-cbox-muted">
+                        Mobile Number (1 Device = 1 Account)
+                      </label>
                       <div className="flex gap-2">
                         <select
                           value={countryCode}
                           onChange={(e) => setCountryCode(e.target.value)}
-                          disabled={otpSent}
                           className="rounded-xl bg-cbox-elevated border border-cbox-border px-2.5 py-2.5 text-xs font-semibold text-cbox-text focus:outline-none focus:border-cbox-accent"
                         >
                           {COUNTRY_CODES.map((c) => (
@@ -602,88 +577,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             type="tel"
                             inputMode="numeric"
                             required
-                            disabled={otpSent}
+                            autoFocus
                             value={mobileDigits}
                             onChange={(e) => setMobileDigits(e.target.value.replace(/[^\d\s-]/g, ''))}
                             placeholder="9876543210"
-                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-9 pr-3 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent disabled:opacity-60"
+                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-9 pr-3 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
                           />
                         </div>
                       </div>
+                      <p className="text-[11px] text-cbox-muted">
+                        No OTP needed. Each device and mobile number can only create 1 Chatterbox ID.
+                      </p>
                     </div>
 
-                    {!otpSent ? (
-                      <button
-                        type="button"
-                        disabled={busy || mobileDigits.replace(/\D/g, '').length < 7}
-                        onClick={handleSendSignupOtp}
-                        className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm hover:opacity-95 transition disabled:opacity-50"
-                      >
-                        {busy ? 'Sending OTP…' : 'Send Verification OTP'}
-                      </button>
-                    ) : (
-                      <div className="space-y-3">
-                        {demoOtp && (
-                          <div className="p-2.5 rounded-xl bg-cbox-violet/15 border border-cbox-violet/40 text-xs text-cbox-text flex items-center justify-between">
-                            <span>Demo OTP Code:</span>
-                            <strong className="font-mono text-sm tracking-widest text-cbox-accent">{demoOtp}</strong>
-                          </div>
-                        )}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-cbox-muted">Enter 6-Digit OTP</label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={6}
-                            required
-                            value={otpInput}
-                            onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
-                            placeholder="000000"
-                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-accent px-4 py-2.5 text-center text-lg font-mono tracking-[0.4em] text-cbox-text focus:outline-none"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={busy || otpInput.length !== 6}
-                          className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm hover:opacity-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                          {busy ? 'Verifying…' : 'Verify Mobile & Continue'}
-                          <ArrowRight className="h-4 w-4" />
-                        </button>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOtpSent(false);
-                              setOtpInput('');
-                              setDemoOtp(null);
-                            }}
-                            className="text-cbox-muted hover:text-cbox-text"
-                          >
-                            Change number
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={handleSendSignupOtp}
-                            className="text-cbox-accent font-semibold hover:underline"
-                          >
-                            Resend OTP
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    <button
+                      type="submit"
+                      disabled={mobileDigits.replace(/\D/g, '').length < 7}
+                      className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
+                    >
+                      Continue <ArrowRight className="h-4 w-4" />
+                    </button>
                   </form>
                 )}
 
                 {/* STEP 2: Nickname */}
                 {step === 2 && (
                   <form onSubmit={handleNextStep} className="space-y-4">
-                    {verifiedPhone && (
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cbox-success/15 text-cbox-success text-[11px] font-semibold">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Verified {verifiedPhone}
-                      </div>
-                    )}
                     <div className="space-y-1.5">
                       <label className="text-xs font-semibold text-cbox-muted">What should friends call you? (Nickname)</label>
                       <input
@@ -697,12 +616,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text focus:outline-none focus:border-cbox-accent"
                       />
                     </div>
-                    <button
-                      type="submit"
-                      className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2"
-                    >
-                      Continue <ArrowRight className="h-4 w-4" />
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setStep(1)}
+                        className="px-4 py-2.5 rounded-xl border border-cbox-border text-xs font-semibold text-cbox-text flex items-center gap-1"
+                      >
+                        <ArrowLeft className="h-4 w-4" /> Back
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-sm flex items-center justify-center gap-2"
+                      >
+                        Continue <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
                   </form>
                 )}
 
@@ -949,14 +877,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
+      {/* Forgot Password Modal (No OTP — verifies Mobile + Username + DOB) */}
       <Modal
         open={forgotOpen}
         onClose={() => setForgotOpen(false)}
-        title="Reset Password via Mobile OTP"
-        description="Verify your registered mobile number to set a new password."
+        title="Reset Password"
+        description="Verify your registered mobile number, username, and date of birth."
       >
-        <div className="space-y-4">
+        <form onSubmit={handleResetPassword} className="space-y-3.5">
           {fpError && (
             <div className="p-2.5 rounded-xl bg-cbox-danger/15 border border-cbox-danger/35 text-xs text-cbox-danger">
               {fpError}
@@ -982,59 +910,53 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </select>
             <input
               type="tel"
+              required
               value={fpPhone}
               onChange={(e) => setFpPhone(e.target.value.replace(/[^\d\s-]/g, ''))}
               placeholder="Registered mobile number"
               className="flex-1 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
             />
-            <button
-              type="button"
-              disabled={fpBusy}
-              onClick={handleSendForgotOtp}
-              className="px-3 py-2 rounded-xl bg-cbox-accent text-slate-950 font-semibold text-xs"
-            >
-              {fpOtpSent ? 'Resend' : 'Send OTP'}
-            </button>
           </div>
 
-          {fpDemoOtp && (
-            <div className="p-2.5 rounded-xl bg-cbox-violet/15 border border-cbox-violet/40 text-xs flex items-center justify-between">
-              <span>Demo Reset OTP:</span>
-              <strong className="font-mono tracking-widest text-cbox-accent">{fpDemoOtp}</strong>
-            </div>
-          )}
+          <input
+            type="text"
+            required
+            value={fpUsername}
+            onChange={(e) => setFpUsername(e.target.value.replace(/\s+/g, ''))}
+            placeholder="Your username"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
+          />
 
-          {fpOtpSent && (
-            <form onSubmit={handleResetPassword} className="space-y-3">
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                required
-                value={fpOtp}
-                onChange={(e) => setFpOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="Enter 6-digit OTP"
-                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm font-mono tracking-widest text-cbox-text"
-              />
-              <input
-                type="password"
-                required
-                minLength={8}
-                value={fpNewPassword}
-                onChange={(e) => setFpNewPassword(e.target.value)}
-                placeholder="New password (8+ characters)"
-                className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
-              />
-              <button
-                type="submit"
-                disabled={fpBusy}
-                className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs"
-              >
-                {fpBusy ? 'Resetting…' : 'Reset Password'}
-              </button>
-            </form>
-          )}
-        </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-cbox-muted">Date of Birth</label>
+            <input
+              type="date"
+              required
+              max={todayIso}
+              value={fpDob}
+              onChange={(e) => setFpDob(e.target.value)}
+              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
+            />
+          </div>
+
+          <input
+            type="password"
+            required
+            minLength={8}
+            value={fpNewPassword}
+            onChange={(e) => setFpNewPassword(e.target.value)}
+            placeholder="New password (8+ characters)"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2 text-sm text-cbox-text"
+          />
+
+          <button
+            type="submit"
+            disabled={fpBusy}
+            className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-bold text-xs disabled:opacity-50"
+          >
+            {fpBusy ? 'Resetting…' : 'Reset Password'}
+          </button>
+        </form>
       </Modal>
     </div>
   );
