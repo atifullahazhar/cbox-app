@@ -68,7 +68,7 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   }
   if (parsed.data.bio !== undefined) updateData.bio = parsed.data.bio;
   if (parsed.data.theme !== undefined) updateData.theme = parsed.data.theme;
-  if (parsed.data.themeKey !== undefined && VALID_THEME_KEYS.has(parsed.data.themeKey)) {
+  if (parsed.data.themeKey !== undefined && /^[a-z0-9-]{3,32}$/.test(parsed.data.themeKey)) {
     updateData.themeKey = parsed.data.themeKey;
   }
   if (parsed.data.isPrivateProfile !== undefined) updateData.isPrivateProfile = parsed.data.isPrivateProfile;

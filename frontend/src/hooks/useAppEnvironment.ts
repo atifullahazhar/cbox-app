@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
-import { getThemeDefinition, type ThemeKey } from '../lib/themes';
+import { getThemeDefinition, type ThemeKey } from '../themes';
 
 export function applyThemeKey(themeKey: ThemeKey): void {
   const def = getThemeDefinition(themeKey);
   localStorage.setItem('chatterbox_theme_key', def.key);
-  document.documentElement.setAttribute('data-theme', def.key);
-  document.documentElement.classList.toggle('dark', def.isDark);
+  const root = document.documentElement;
+  root.setAttribute('data-theme', def.key);
+  root.classList.toggle('dark', def.isDark);
+
+  const p = def.palette;
+  root.style.setProperty('--cbox-bg', p.bg);
+  root.style.setProperty('--cbox-surface', p.surface);
+  root.style.setProperty('--cbox-elevated', p.elevated);
+  root.style.setProperty('--cbox-border', p.border);
+  root.style.setProperty('--cbox-text', p.text);
+  root.style.setProperty('--cbox-muted', p.muted);
+  root.style.setProperty('--cbox-accent', p.accent);
+  root.style.setProperty('--cbox-accent-hover', p.accentHover);
+  root.style.setProperty('--cbox-violet', p.violet);
+  root.style.setProperty('--cbox-success', p.success);
+  root.style.setProperty('--cbox-danger', p.danger);
+  root.style.setProperty('--cbox-warning', p.warning);
 }
 
 export function useThemeSync(themeKey: ThemeKey) {

@@ -11,6 +11,7 @@ import {
   Shield,
   ShieldCheck,
   Smartphone,
+  Search,
   Terminal,
   Trash2,
   User,
@@ -18,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import type { BlockedUserItem, SafeUser, SessionInfo } from '../../types';
-import { CHATTERBOX_THEMES, type ThemeKey } from '../../lib/themes';
+import { CHATTERBOX_THEMES, THEME_CATEGORIES, type ThemeKey } from '../../themes';
 import { apiFetch } from '../../lib/api';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ui/Avatar';
@@ -59,6 +60,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [newAlias, setNewAlias] = useState('');
   const [bio, setBio] = useState(user.bio);
   const [themeKey, setThemeKey] = useState<ThemeKey>(user.themeKey || 'midnight-neon');
+  const [themeCategory, setThemeCategory] = useState<string>('All');
+  const [themeSearch, setThemeSearch] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
   // Privacy fields
@@ -425,42 +428,80 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </form>
         )}
 
-        {/* ===================== TAB 2: THEMES ===================== */}
-        {tab === 'themes' && (
-          <div className="space-y-4">
-            <p className="text-xs text-cbox-muted">
-              Choose from 10 smooth animated themes including Cherry Blossom petals, Cyber Neon, Aurora Glow, and AMOLED True-Black.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-              {CHATTERBOX_THEMES.map((t) => {
-                const active = themeKey === t.key;
-                return (
+        {/* ===================== TAB 2: THEMES (100 ANIMATED THEMES) ===================== */}
+        {tab === 'themes' && (() => {
+          const filteredThemes = CHATTERBOX_THEMES.filter((t) => {
+            const catOk = themeCategory === 'All' || t.category === themeCategory;
+            const q = themeSearch.trim().toLowerCase();
+            const qOk = !q || t.name.toLowerCase().includes(q) || t.tagline.toLowerCase().includes(q) || t.category.toLowerCase().includes(q);
+            return catOk && qOk;
+          });
+          return (
+            <div className="space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-cbox-muted">
+                  <strong className="text-cbox-text">100 Animated Themes</strong> across 10 curated collections ({filteredThemes.length} shown)
+                </p>
+                <div className="relative w-full sm:w-56">
+                  <Search className="h-3.5 w-3.5 text-cbox-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={themeSearch}
+                    onChange={(e) => setThemeSearch(e.target.value)}
+                    placeholder="Search 100 themes…"
+                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border pl-8 pr-3 py-1.5 text-xs text-cbox-text focus:outline-none focus:border-cbox-accent"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {['All', ...THEME_CATEGORIES].map((cat) => (
                   <button
-                    key={t.key}
+                    key={cat}
                     type="button"
-                    onClick={() => handleSelectTheme(t.key)}
-                    className={`p-3 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] ${
-                      active
-                        ? 'border-cbox-accent bg-cbox-accent/15 ring-1 ring-cbox-accent'
-                        : 'border-cbox-border bg-cbox-elevated/50 hover:bg-cbox-elevated'
+                    onClick={() => setThemeCategory(cat)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap border transition ${
+                      themeCategory === cat
+                        ? 'bg-cbox-accent text-slate-950 border-cbox-accent'
+                        : 'bg-cbox-elevated/60 border-cbox-border text-cbox-muted hover:text-cbox-text'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-base">{t.emoji}</span>
-                      <div className="flex -space-x-1">
-                        {t.swatch.map((hex, i) => (
-                          <span key={i} style={{ backgroundColor: hex }} className="h-3.5 w-3.5 rounded-full border border-white/30" />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-[11px] font-bold text-cbox-text truncate">{t.name}</p>
-                    <p className="text-[10px] text-cbox-muted truncate">{t.tagline}</p>
+                    {cat}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-[340px] overflow-y-auto pr-1">
+                {filteredThemes.map((t) => {
+                  const active = themeKey === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => handleSelectTheme(t.key)}
+                      className={`p-2.5 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] ${
+                        active
+                          ? 'border-cbox-accent bg-cbox-accent/15 ring-1 ring-cbox-accent'
+                          : 'border-cbox-border bg-cbox-elevated/50 hover:bg-cbox-elevated'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-base">{t.emoji}</span>
+                        <div className="flex -space-x-1">
+                          {t.swatch.map((hex, i) => (
+                            <span key={i} style={{ backgroundColor: hex }} className="h-3.5 w-3.5 rounded-full border border-white/30" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-[11px] font-bold text-cbox-text truncate">{t.name}</p>
+                      <p className="text-[10px] text-cbox-muted truncate">{t.tagline}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ===================== TAB 3: PRIVACY ===================== */}
         {tab === 'privacy' && (

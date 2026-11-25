@@ -264,7 +264,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
               <div className="rounded-2xl p-3.5 bg-gradient-to-br from-cbox-accent/20 via-cbox-violet/15 to-transparent border border-cbox-border/70 space-y-2">
                 <p className="text-xs font-bold text-cbox-text flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-cbox-accent" /> 10 Animated Themes
+                  <Sparkles className="h-3.5 w-3.5 text-cbox-accent" /> 100 Animated Themes
                 </p>
                 <p className="text-[11px] text-cbox-muted leading-relaxed">
                   Cherry Blossom petals, Neon Cyber, Aurora Glow & more — smooth real-time chats, public events, and built-in anti-NSFW safety shield.
