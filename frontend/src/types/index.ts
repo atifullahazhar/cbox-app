@@ -8,6 +8,7 @@ export type NavSection = 'profile' | 'chat' | 'posts' | 'communities' | 'develop
 
 export interface SafeUser {
   id: string;
+  isPinned?: boolean;
   username: string;
   usernameNormalized: string;
   primaryNickname: string;
