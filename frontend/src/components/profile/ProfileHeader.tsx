@@ -8,6 +8,7 @@ interface ProfileHeaderProps {
   user: SafeUser;
   stats: ProfileStats;
   onOpenSettings: () => void;
+  onOpenFriendsList?: () => void;
   onPickAvatar: () => void;
   onPickBanner: () => void;
 }
@@ -16,6 +17,7 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   user,
   stats,
   onOpenSettings,
+  onOpenFriendsList,
   onPickAvatar,
   onPickBanner,
 }) => {
