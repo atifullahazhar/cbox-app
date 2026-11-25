@@ -1,17 +1,22 @@
 """
-Chatterbox Python Security & OTP Auth Microservice (FastAPI + Argon2id)
-Runs privately on 127.0.0.1:8001 inside the container and handles:
+Chatterbox Python Security, OTP & 2FA (TOTP) Microservice
+Runs privately on 127.0.0.1:8001 inside the container:
 - E.164 phone number validation & normalization (1 phone = 1 account)
 - Argon2id password & Secret PIN hashing/verification
-- Cryptographically secure 6-digit OTP generation & constant-time HMAC-SHA256 verification
-- SMS OTP dispatch via Twilio / MSG91 (or clearly labelled demo mode when unconfigured)
+- Cryptographic 6-digit OTP generation & constant-time HMAC-SHA256 verification
+- RFC 6238 TOTP 2FA secret generation & verification (Google Authenticator / Authy)
+- SMS dispatch via Twilio / MSG91 (or clearly labelled demo mode)
 """
+import base64
 import hashlib
 import hmac
 import os
 import re
 import secrets
+import struct
+import time
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from argon2 import PasswordHasher
@@ -20,15 +25,13 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="Chatterbox Python Auth Security Engine", docs_url=None, redoc_url=None)
-
 ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=1)
 
 INTERNAL_AUTH_KEY = os.getenv("INTERNAL_AUTH_KEY", "chatterbox-local-internal-key")
 OTP_HMAC_SECRET = os.getenv("SESSION_SECRET", "dev-only-otp-hmac-secret")
-SMS_PROVIDER = os.getenv("SMS_PROVIDER", "demo").lower()  # demo | twilio | msg91
+SMS_PROVIDER = os.getenv("SMS_PROVIDER", "demo").lower()
 OTP_DEMO_MODE = os.getenv("OTP_DEMO_MODE", "true").lower() == "true"
 
-# Indian 10-digit mobile or E.164 international format (+<country><number>, 8-15 digits)
 E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 DIGITS_ONLY_RE = re.compile(r"\D+")
 
@@ -44,7 +47,6 @@ def normalize_phone_e164(raw_phone: str, default_country_code: str = "+91") -> s
         digits = "+" + DIGITS_ONLY_RE.sub("", cleaned[1:])
     else:
         digits_only = DIGITS_ONLY_RE.sub("", cleaned)
-        # Strip leading 0 for local 10-digit Indian numbers
         if len(digits_only) == 11 and digits_only.startswith("0"):
             digits_only = digits_only[1:]
         if len(digits_only) == 10:
@@ -65,6 +67,33 @@ def hash_otp_code(phone_e164: str, purpose: str, code: str) -> str:
 def verify_otp_hash(phone_e164: str, purpose: str, code: str, expected_hash: str) -> bool:
     computed = hash_otp_code(phone_e164, purpose, code.strip())
     return hmac.compare_digest(computed, expected_hash)
+
+
+def generate_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def compute_totp(secret_b32: str, for_time: Optional[int] = None, step: int = 30) -> str:
+    padded = secret_b32.upper() + "=" * ((8 - len(secret_b32) % 8) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int((for_time if for_time is not None else time.time()) // step)
+    msg = struct.pack(">Q", counter)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code_int = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return f"{code_int % 1_000_000:06d}"
+
+
+def verify_totp_code(secret_b32: str, code: str, window: int = 1) -> bool:
+    clean = code.strip()
+    if not re.fullmatch(r"\d{6}", clean):
+        return False
+    now = int(time.time())
+    for delta in range(-window, window + 1):
+        expected = compute_totp(secret_b32, for_time=now + delta * 30)
+        if hmac.compare_digest(clean, expected):
+            return True
+    return False
 
 
 async def dispatch_sms(phone_e164: str, code: str, purpose: str) -> dict:
@@ -107,7 +136,6 @@ async def dispatch_sms(phone_e164: str, code: str, purpose: str) -> dict:
                 raise HTTPException(status_code=502, detail="MSG91 rejected OTP delivery.")
         return {"deliveredVia": "msg91", "demoCode": None}
 
-    # Demo mode (when no external SMS provider credentials are configured)
     return {"deliveredVia": "demo", "demoCode": code if OTP_DEMO_MODE else None}
 
 
@@ -136,17 +164,25 @@ class OtpVerifyRequest(BaseModel):
     expectedHash: str = Field(..., min_length=32)
 
 
+class TotpSetupRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=32)
+
+
+class TotpVerifyRequest(BaseModel):
+    secret: str = Field(..., min_length=16, max_length=64)
+    code: str = Field(..., min_length=6, max_length=6)
+
+
 @app.get("/internal/health")
 def health():
-    return {"status": "ok", "engine": "python-argon2id-otp", "smsProvider": SMS_PROVIDER}
+    return {"status": "ok", "engine": "python-argon2id-otp-totp", "smsProvider": SMS_PROVIDER}
 
 
 @app.post("/internal/phone/normalize")
 def api_normalize_phone(body: PhoneRequest, x_internal_key: Optional[str] = Header(default=None)):
     verify_internal_key(x_internal_key)
     try:
-        normalized = normalize_phone_e164(body.phone)
-        return {"phoneNormalized": normalized}
+        return {"phoneNormalized": normalize_phone_e164(body.phone)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -161,11 +197,8 @@ def api_hash_password(body: PasswordHashRequest, x_internal_key: Optional[str] =
 def api_verify_password(body: PasswordVerifyRequest, x_internal_key: Optional[str] = Header(default=None)):
     verify_internal_key(x_internal_key)
     try:
-        valid = ph.verify(body.passwordHash, body.password)
-        return {"valid": bool(valid)}
-    except VerifyMismatchError:
-        return {"valid": False}
-    except Exception:
+        return {"valid": bool(ph.verify(body.passwordHash, body.password))}
+    except (VerifyMismatchError, Exception):
         return {"valid": False}
 
 
@@ -196,6 +229,19 @@ def api_verify_otp(body: OtpVerifyRequest, x_internal_key: Optional[str] = Heade
         phone_e164 = normalize_phone_e164(body.phone)
     except ValueError:
         return {"valid": False}
+    return {"valid": verify_otp_hash(phone_e164, body.purpose, body.code, body.expectedHash)}
 
-    valid = verify_otp_hash(phone_e164, body.purpose, body.code, body.expectedHash)
-    return {"valid": valid}
+
+@app.post("/internal/totp/setup")
+def api_totp_setup(body: TotpSetupRequest, x_internal_key: Optional[str] = Header(default=None)):
+    verify_internal_key(x_internal_key)
+    secret = generate_totp_secret()
+    label = quote(f"Chatterbox:{body.username}")
+    otpauth_uri = f"otpauth://totp/{label}?secret={secret}&issuer=Chatterbox&digits=6&period=30"
+    return {"secret": secret, "otpauthUri": otpauth_uri}
+
+
+@app.post("/internal/totp/verify")
+def api_totp_verify(body: TotpVerifyRequest, x_internal_key: Optional[str] = Header(default=None)):
+    verify_internal_key(x_internal_key)
+    return {"valid": verify_totp_code(body.secret, body.code)}

@@ -1,23 +1,17 @@
 import { useEffect, useState } from 'react';
-import type { ThemePreference } from '../types';
+import { getThemeDefinition, type ThemeKey } from '../lib/themes';
 
-export function applyThemePreference(pref: ThemePreference): void {
-  localStorage.setItem('cbox_theme', pref);
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const shouldBeDark = pref === 'DARK' || (pref === 'SYSTEM' && prefersDark);
-  document.documentElement.classList.toggle('dark', shouldBeDark);
+export function applyThemeKey(themeKey: ThemeKey): void {
+  const def = getThemeDefinition(themeKey);
+  localStorage.setItem('chatterbox_theme_key', def.key);
+  document.documentElement.setAttribute('data-theme', def.key);
+  document.documentElement.classList.toggle('dark', def.isDark);
 }
 
-export function useThemeSync(theme: ThemePreference) {
+export function useThemeSync(themeKey: ThemeKey) {
   useEffect(() => {
-    applyThemePreference(theme);
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      if (theme === 'SYSTEM') applyThemePreference('SYSTEM');
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [theme]);
+    applyThemeKey(themeKey);
+  }, [themeKey]);
 }
 
 interface BeforeInstallPromptEvent extends Event {

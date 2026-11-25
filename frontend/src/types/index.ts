@@ -1,3 +1,5 @@
+import type { ThemeKey } from '../lib/themes';
+
 export type UserRole = 'USER' | 'DEVELOPER';
 export type ThemePreference = 'SYSTEM' | 'LIGHT' | 'DARK';
 export type PostAudience = 'FRIENDS_ONLY' | 'PUBLIC';
@@ -14,9 +16,11 @@ export interface SafeUser {
   bannerUrl: string | null;
   phoneMasked?: string | null;
   hasSecretPin?: boolean;
+  totpEnabled?: boolean;
   hideOnlineStatus?: boolean;
   disableReadReceipts?: boolean;
   theme?: ThemePreference;
+  themeKey?: ThemeKey;
   role?: UserRole;
   isDemo?: boolean;
   createdAt?: string;
@@ -88,6 +92,41 @@ export interface ChatMessage {
   expiresAt?: string | null;
   editedAt?: string | null;
   deletedAt?: string | null;
+  createdAt: string;
+}
+
+export interface GroupSummary {
+  id: string;
+  name: string;
+  description: string;
+  inviteCode: string;
+  myRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+  memberCount: number;
+  lastMessage: {
+    id: string;
+    senderName: string;
+    content: string;
+    createdAt: string;
+  } | null;
+}
+
+export interface GroupMessageItem {
+  id: string;
+  groupId: string;
+  content: string;
+  createdAt: string;
+  sender: SafeUser;
+}
+
+export interface GroupPollItem {
+  id: string;
+  groupId: string;
+  question: string;
+  options: string[];
+  counts: number[];
+  totalVotes: number;
+  myVote: number | null;
+  creator: SafeUser;
   createdAt: string;
 }
 

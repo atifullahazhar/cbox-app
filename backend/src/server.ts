@@ -13,6 +13,7 @@ import { authRouter } from './routes/auth.js';
 import { profileRouter } from './routes/profile.js';
 import { friendsRouter } from './routes/friends.js';
 import { chatRouter } from './routes/chat.js';
+import { groupsRouter } from './routes/groups.js';
 import { postsRouter } from './routes/posts.js';
 import { storiesRouter } from './routes/stories.js';
 import { mediaRouter } from './routes/media.js';
@@ -24,16 +25,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-if (env.trustProxy) {
-  app.set('trust proxy', 1);
-}
+if (env.trustProxy) app.set('trust proxy', 1);
 
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-  })
-);
+app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
     origin: env.appOrigin,
@@ -50,7 +44,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'chatterbox-backend',
-    phase: '2',
+    version: '3.0.0-ultimate',
     pythonAuthEngine: true,
     timestamp: new Date().toISOString(),
   });
@@ -60,6 +54,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/friends', friendsRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/groups', groupsRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/stories', storiesRouter);
 app.use('/api/media', mediaRouter);
@@ -74,31 +69,22 @@ if (env.serveFrontend) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(frontendDist, 'sw.js'));
     });
-
     app.get('/manifest.webmanifest', (_req, res) => {
       res.setHeader('Content-Type', 'application/manifest+json');
       res.sendFile(path.join(frontendDist, 'manifest.webmanifest'));
     });
-
     app.use(express.static(frontendDist, { index: false, maxAge: '7d' }));
-
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
-        return next();
-      }
+      if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return next();
       res.setHeader('Cache-Control', 'no-cache');
       return res.sendFile(path.join(frontendDist, 'index.html'));
     });
-  } else {
-    console.warn('[Chatterbox] frontend/dist not found; serving API only.');
   }
 }
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err && typeof err === 'object' && 'code' in err && (err as any).code === 'LIMIT_FILE_SIZE') {
-    res.status(413).json({
-      error: `Uploaded file is too large. Maximum allowed size is ${Math.round(env.maxUploadBytes / (1024 * 1024))} MB.`,
-    });
+    res.status(413).json({ error: `Uploaded file is too large (max ${Math.round(env.maxUploadBytes / (1024 * 1024))} MB).` });
     return;
   }
   console.error('[Chatterbox Server Error]', err instanceof Error ? err.message : 'Unknown error');
@@ -109,6 +95,5 @@ const httpServer = http.createServer(app);
 attachSocketServer(httpServer);
 
 httpServer.listen(env.port, () => {
-  console.log(`[Chatterbox] Listening on port ${env.port} (${env.nodeEnv})`);
-  console.log(`[Chatterbox] Python Auth: ${env.pythonAuthUrl} | SMS: ${env.smsProvider}`);
+  console.log(`[Chatterbox Ultimate] Listening on port ${env.port} (${env.nodeEnv})`);
 });

@@ -61,3 +61,12 @@ export async function pyVerifyOtp(
   });
   return Boolean(res.valid);
 }
+
+export async function pyTotpSetup(username: string): Promise<{ secret: string; otpauthUri: string }> {
+  return callPython('/internal/totp/setup', { username });
+}
+
+export async function pyTotpVerify(secret: string, code: string): Promise<boolean> {
+  const res = await callPython<{ valid: boolean }>('/internal/totp/verify', { secret, code });
+  return Boolean(res.valid);
+}

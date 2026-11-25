@@ -20,6 +20,19 @@ export const RESERVED_USERNAMES = new Set([
   'posts',
 ]);
 
+export const VALID_THEME_KEYS = new Set([
+  'midnight-neon',
+  'crisp-daylight',
+  'cherry-blossom',
+  'aurora-borealis',
+  'sunset-ember',
+  'ocean-bioluminescence',
+  'cyberpunk-synth',
+  'emerald-forest',
+  'lavender-dream',
+  'amoled-obsidian',
+]);
+
 export function normalizeUsername(raw: string): { display: string; normalized: string } {
   const trimmed = raw.trim();
   const normalized = trimmed.toLowerCase();
@@ -42,12 +55,7 @@ export function validatePasswordStrength(password: string): void {
 }
 
 export async function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, {
-    type: argon2.argon2id,
-    memoryCost: 65536,
-    timeCost: 3,
-    parallelism: 1,
-  });
+  return argon2.hash(password, { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 1 });
 }
 
 export async function verifyPassword(hash: string, password: string): Promise<boolean> {
@@ -90,22 +98,12 @@ export function verifyDeveloperAccessCode(submittedCode: string): {
   if (!configured || configured.startsWith('REPLACE_WITH')) {
     return { valid: false, reason: 'NOT_CONFIGURED' };
   }
-
   const is12Digit = /^\d{12}$/.test(configured);
   const is9DigitDemo = env.developerCodeAllowDemo9Digit && /^\d{9}$/.test(configured);
-  if (!is12Digit && !is9DigitDemo) {
-    return { valid: false, reason: 'NOT_CONFIGURED' };
-  }
-
+  if (!is12Digit && !is9DigitDemo) return { valid: false, reason: 'NOT_CONFIGURED' };
   const candidate = submittedCode.trim();
-  if (!/^\d{9,12}$/.test(candidate)) {
-    return { valid: false, reason: 'INVALID_FORMAT' };
-  }
-
-  if (timingSafeEqualStr(candidate, configured)) {
-    return { valid: true };
-  }
-  return { valid: false, reason: 'MISMATCH' };
+  if (!/^\d{9,12}$/.test(candidate)) return { valid: false, reason: 'INVALID_FORMAT' };
+  return timingSafeEqualStr(candidate, configured) ? { valid: true } : { valid: false, reason: 'MISMATCH' };
 }
 
 export function canonicalPair(idA: string, idB: string): [string, string] {
@@ -123,9 +121,11 @@ export interface SafeUserDTO {
   bannerUrl: string | null;
   phoneMasked?: string | null;
   hasSecretPin?: boolean;
+  totpEnabled?: boolean;
   hideOnlineStatus?: boolean;
   disableReadReceipts?: boolean;
   theme?: 'SYSTEM' | 'LIGHT' | 'DARK';
+  themeKey?: string;
   role?: 'USER' | 'DEVELOPER';
   isDemo?: boolean;
   createdAt?: string;
@@ -161,6 +161,7 @@ export function toSelfUserDTO(user: {
   usernameNormalized: string;
   phoneNormalized?: string | null;
   secretPinHash?: string | null;
+  totpEnabled?: boolean;
   hideOnlineStatus?: boolean;
   disableReadReceipts?: boolean;
   primaryNickname: string;
@@ -169,6 +170,7 @@ export function toSelfUserDTO(user: {
   avatarMediaId: string | null;
   bannerMediaId: string | null;
   theme: 'SYSTEM' | 'LIGHT' | 'DARK';
+  themeKey?: string;
   role: 'USER' | 'DEVELOPER';
   isDemo: boolean;
   createdAt: Date;
@@ -177,9 +179,11 @@ export function toSelfUserDTO(user: {
     ...toPublicUserDTO(user),
     phoneMasked: maskPhone(user.phoneNormalized),
     hasSecretPin: Boolean(user.secretPinHash),
+    totpEnabled: Boolean(user.totpEnabled),
     hideOnlineStatus: Boolean(user.hideOnlineStatus),
     disableReadReceipts: Boolean(user.disableReadReceipts),
     theme: user.theme,
+    themeKey: user.themeKey || 'midnight-neon',
     role: user.role,
     createdAt: user.createdAt.toISOString(),
   };

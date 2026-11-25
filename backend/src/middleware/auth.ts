@@ -16,8 +16,10 @@ export interface AuthenticatedRequest extends Request {
       id: string;
       usernameDisplay: string;
       usernameNormalized: string;
-      phoneNormalized: string | null;
+      phoneNormalized: string;
       secretPinHash: string | null;
+      totpSecret: string | null;
+      totpEnabled: boolean;
       hideOnlineStatus: boolean;
       disableReadReceipts: boolean;
       primaryNickname: string;
@@ -26,6 +28,7 @@ export interface AuthenticatedRequest extends Request {
       avatarMediaId: string | null;
       bannerMediaId: string | null;
       theme: 'SYSTEM' | 'LIGHT' | 'DARK';
+      themeKey: string;
       role: UserRole;
       isDemo: boolean;
       createdAt: Date;
@@ -41,18 +44,12 @@ export function setAuthCookies(res: Response, rawSessionToken: string, csrfToken
     domain: env.cookieDomain,
     path: '/',
   };
-
   res.cookie(SESSION_COOKIE_NAME, rawSessionToken, { ...baseOpts, httpOnly: true });
   res.cookie(CSRF_COOKIE_NAME, csrfToken, { ...baseOpts, httpOnly: false });
 }
 
 export function clearAuthCookies(res: Response): void {
-  const opts = {
-    sameSite: 'lax' as const,
-    secure: env.cookieSecure,
-    domain: env.cookieDomain,
-    path: '/',
-  };
+  const opts = { sameSite: 'lax' as const, secure: env.cookieSecure, domain: env.cookieDomain, path: '/' };
   res.clearCookie(SESSION_COOKIE_NAME, { ...opts, httpOnly: true });
   res.clearCookie(CSRF_COOKIE_NAME, { ...opts, httpOnly: false });
 }
@@ -65,10 +62,7 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   }
 
   const tokenHash = hashToken(rawToken);
-  const session = await prisma.session.findUnique({
-    where: { tokenHash },
-    include: { user: true },
-  });
+  const session = await prisma.session.findUnique({ where: { tokenHash }, include: { user: true } });
 
   if (!session || session.revokedAt !== null || session.expiresAt <= new Date()) {
     clearAuthCookies(res);
@@ -85,18 +79,11 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     }
   }
 
-  req.auth = {
-    sessionId: session.id,
-    csrfToken: session.csrfToken,
-    user: session.user,
-  };
+  req.auth = { sessionId: session.id, csrfToken: session.csrfToken, user: session.user };
 
   if (Date.now() - session.lastActiveAt.getTime() > 5 * 60 * 1000) {
-    prisma.session
-      .update({ where: { id: session.id }, data: { lastActiveAt: new Date() } })
-      .catch(() => {});
+    prisma.session.update({ where: { id: session.id }, data: { lastActiveAt: new Date() } }).catch(() => {});
   }
-
   next();
 }
 

@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { SESSION_COOKIE_NAME } from '../middleware/auth.js';
 import { hashToken } from '../utils/security.js';
-import { getFriendIds } from '../services/permissions.js';
+import { areFriends, getBlockState, getFriendIds } from '../services/permissions.js';
 
 let ioInstance: Server | null = null;
 const activeSocketsByUser = new Map<string, Set<string>>();
@@ -34,21 +34,23 @@ export function emitToUser(userId: string, event: string, payload: unknown): voi
 
 async function broadcastPresenceToFriends(userId: string, online: boolean): Promise<void> {
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { hideOnlineStatus: true },
+    });
+    if (user?.hideOnlineStatus && online) return;
     const friendIds = await getFriendIds(userId);
     for (const friendId of friendIds) {
       emitToUser(friendId, 'presence:update', { userId, online });
     }
   } catch {
-    // Ignore transient presence broadcast failures
+    // Ignore transient errors
   }
 }
 
 export function attachSocketServer(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
-    cors: {
-      origin: env.appOrigin,
-      credentials: true,
-    },
+    cors: { origin: env.appOrigin, credentials: true },
     transports: ['websocket', 'polling'],
   });
 
@@ -91,7 +93,7 @@ export function attachSocketServer(httpServer: HttpServer): Server {
       await broadcastPresenceToFriends(userId, true);
     }
 
-    // Participant-authorized real-time typing indicator
+    // Typing indicator relay
     socket.on('chat:typing', async (payload: { conversationId?: string; isTyping?: boolean }) => {
       try {
         if (!payload?.conversationId || typeof payload.isTyping !== 'boolean') return;
@@ -106,9 +108,46 @@ export function attachSocketServer(httpServer: HttpServer): Server {
           userId,
           isTyping: payload.isTyping,
         });
-      } catch {
-        // Ignore malformed typing events
-      }
+      } catch {}
+    });
+
+    // WebRTC 1:1 Voice & Video Call Signaling (strictly accepted-friends only)
+    const canCallPeer = async (targetUserId?: string): Promise<boolean> => {
+      if (!targetUserId || targetUserId === userId) return false;
+      const block = await getBlockState(userId, targetUserId);
+      if (block.anyBlock) return false;
+      return areFriends(userId, targetUserId);
+    };
+
+    socket.on('call:offer', async (payload: { toUserId?: string; sdp?: unknown; kind?: 'audio' | 'video'; callerName?: string; callerUsername?: string }) => {
+      if (!(await canCallPeer(payload?.toUserId))) return;
+      emitToUser(payload.toUserId!, 'call:offer', {
+        fromUserId: userId,
+        sdp: payload.sdp,
+        kind: payload.kind === 'video' ? 'video' : 'audio',
+        callerName: payload.callerName || 'Friend',
+        callerUsername: payload.callerUsername || '',
+      });
+    });
+
+    socket.on('call:answer', async (payload: { toUserId?: string; sdp?: unknown }) => {
+      if (!(await canCallPeer(payload?.toUserId))) return;
+      emitToUser(payload.toUserId!, 'call:answer', { fromUserId: userId, sdp: payload.sdp });
+    });
+
+    socket.on('call:ice', async (payload: { toUserId?: string; candidate?: unknown }) => {
+      if (!(await canCallPeer(payload?.toUserId))) return;
+      emitToUser(payload.toUserId!, 'call:ice', { fromUserId: userId, candidate: payload.candidate });
+    });
+
+    socket.on('call:hangup', async (payload: { toUserId?: string }) => {
+      if (!payload?.toUserId) return;
+      emitToUser(payload.toUserId, 'call:hangup', { fromUserId: userId });
+    });
+
+    socket.on('call:reject', async (payload: { toUserId?: string }) => {
+      if (!payload?.toUserId) return;
+      emitToUser(payload.toUserId, 'call:reject', { fromUserId: userId });
     });
 
     socket.on('disconnect', async () => {

@@ -6,7 +6,7 @@ import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { type AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
 import { uploadLimiter } from '../middleware/rateLimits.js';
-import { normalizeUsername, toPublicUserDTO, toSelfUserDTO } from '../utils/security.js';
+import { normalizeUsername, toPublicUserDTO, toSelfUserDTO, VALID_THEME_KEYS } from '../utils/security.js';
 import { deleteStoredMedia, processAndStoreImage } from '../services/storage.js';
 import { areFriends, getBlockState } from '../services/permissions.js';
 
@@ -23,6 +23,7 @@ const updateProfileSchema = z.object({
   alternateNicknames: z.array(z.string().trim().min(1).max(32)).max(6).optional(),
   bio: z.string().trim().max(280).optional(),
   theme: z.nativeEnum(ThemePreference).optional(),
+  themeKey: z.string().max(32).optional(),
   hideOnlineStatus: z.boolean().optional(),
   disableReadReceipts: z.boolean().optional(),
 });
@@ -35,17 +36,13 @@ profileRouter.get('/me', async (req: AuthenticatedRequest, res) => {
     prisma.post.count({ where: { authorId: userId, deletedAt: null } }),
     prisma.friendship.count({ where: { OR: [{ userAId: userId }, { userBId: userId }] } }),
   ]);
-
-  res.json({
-    profile: toSelfUserDTO(req.auth!.user),
-    stats: { postCount, friendCount },
-  });
+  res.json({ profile: toSelfUserDTO(req.auth!.user), stats: { postCount, friendCount } });
 });
 
 profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid profile update payload.', details: parsed.error.flatten() });
+    res.status(400).json({ error: 'Invalid profile update payload.' });
     return;
   }
 
@@ -68,14 +65,14 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   }
   if (parsed.data.bio !== undefined) updateData.bio = parsed.data.bio;
   if (parsed.data.theme !== undefined) updateData.theme = parsed.data.theme;
+  if (parsed.data.themeKey !== undefined && VALID_THEME_KEYS.has(parsed.data.themeKey)) {
+    updateData.themeKey = parsed.data.themeKey;
+  }
   if (parsed.data.hideOnlineStatus !== undefined) updateData.hideOnlineStatus = parsed.data.hideOnlineStatus;
   if (parsed.data.disableReadReceipts !== undefined) updateData.disableReadReceipts = parsed.data.disableReadReceipts;
 
   try {
-    const updated = await prisma.user.update({
-      where: { id: req.auth!.user.id },
-      data: updateData,
-    });
+    const updated = await prisma.user.update({ where: { id: req.auth!.user.id }, data: updateData });
     res.json({ profile: toSelfUserDTO(updated) });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -86,16 +83,11 @@ profileRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-async function handleProfileImageUpload(
-  req: AuthenticatedRequest,
-  res: any,
-  purpose: 'AVATAR' | 'BANNER'
-) {
+async function handleProfileImageUpload(req: AuthenticatedRequest, res: any, purpose: 'AVATAR' | 'BANNER') {
   if (!req.file) {
     res.status(400).json({ error: 'Please select an image file.' });
     return;
   }
-
   try {
     const stored = await processAndStoreImage({
       buffer: req.file.buffer,
@@ -103,7 +95,6 @@ async function handleProfileImageUpload(
       ownerId: req.auth!.user.id,
       purpose: purpose === 'AVATAR' ? MediaPurpose.AVATAR : MediaPurpose.BANNER,
     });
-
     const asset = await prisma.mediaAsset.create({
       data: {
         ownerId: req.auth!.user.id,
@@ -111,15 +102,11 @@ async function handleProfileImageUpload(
         ...stored,
       },
     });
-
-    const previousMediaId =
-      purpose === 'AVATAR' ? req.auth!.user.avatarMediaId : req.auth!.user.bannerMediaId;
-
+    const previousMediaId = purpose === 'AVATAR' ? req.auth!.user.avatarMediaId : req.auth!.user.bannerMediaId;
     const updated = await prisma.user.update({
       where: { id: req.auth!.user.id },
       data: purpose === 'AVATAR' ? { avatarMediaId: asset.id } : { bannerMediaId: asset.id },
     });
-
     if (previousMediaId) {
       const oldAsset = await prisma.mediaAsset.findUnique({ where: { id: previousMediaId } });
       if (oldAsset) {
@@ -127,7 +114,6 @@ async function handleProfileImageUpload(
         await deleteStoredMedia(oldAsset.storageKey);
       }
     }
-
     res.json({ profile: toSelfUserDTO(updated) });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Image upload failed.' });
@@ -137,17 +123,13 @@ async function handleProfileImageUpload(
 profileRouter.post('/me/avatar', uploadLimiter, upload.single('image'), (req, res) =>
   handleProfileImageUpload(req as AuthenticatedRequest, res, 'AVATAR')
 );
-
 profileRouter.post('/me/banner', uploadLimiter, upload.single('image'), (req, res) =>
   handleProfileImageUpload(req as AuthenticatedRequest, res, 'BANNER')
 );
 
 profileRouter.delete('/me/avatar', async (req: AuthenticatedRequest, res) => {
   const prevId = req.auth!.user.avatarMediaId;
-  const updated = await prisma.user.update({
-    where: { id: req.auth!.user.id },
-    data: { avatarMediaId: null },
-  });
+  const updated = await prisma.user.update({ where: { id: req.auth!.user.id }, data: { avatarMediaId: null } });
   if (prevId) {
     const oldAsset = await prisma.mediaAsset.findUnique({ where: { id: prevId } });
     if (oldAsset) {
@@ -160,10 +142,7 @@ profileRouter.delete('/me/avatar', async (req: AuthenticatedRequest, res) => {
 
 profileRouter.delete('/me/banner', async (req: AuthenticatedRequest, res) => {
   const prevId = req.auth!.user.bannerMediaId;
-  const updated = await prisma.user.update({
-    where: { id: req.auth!.user.id },
-    data: { bannerMediaId: null },
-  });
+  const updated = await prisma.user.update({ where: { id: req.auth!.user.id }, data: { bannerMediaId: null } });
   if (prevId) {
     const oldAsset = await prisma.mediaAsset.findUnique({ where: { id: prevId } });
     if (oldAsset) {
@@ -181,7 +160,6 @@ profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
     res.status(404).json({ error: 'User not found.' });
     return;
   }
-
   const viewerId = req.auth!.user.id;
   if (target.id !== viewerId) {
     const blockState = await getBlockState(viewerId, target.id);
@@ -190,27 +168,17 @@ profileRouter.get('/:username', async (req: AuthenticatedRequest, res) => {
       return;
     }
   }
-
   const isSelf = target.id === viewerId;
   const isFriend = isSelf ? false : await areFriends(viewerId, target.id);
   const canSeeFriendsOnly = isSelf || isFriend;
 
   const [posts, friendCount] = await Promise.all([
     prisma.post.findMany({
-      where: {
-        authorId: target.id,
-        deletedAt: null,
-        ...(canSeeFriendsOnly ? {} : { audience: PostAudience.PUBLIC }),
-      },
+      where: { authorId: target.id, deletedAt: null, ...(canSeeFriendsOnly ? {} : { audience: PostAudience.PUBLIC }) },
       include: {
         author: true,
         likes: { where: { userId: viewerId }, select: { userId: true } },
-        _count: {
-          select: {
-            likes: true,
-            comments: { where: { deletedAt: null } },
-          },
-        },
+        _count: { select: { likes: true, comments: { where: { deletedAt: null } } } },
       },
       orderBy: { createdAt: 'desc' },
       take: 24,

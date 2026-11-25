@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { NavSection, ProfileStats, SafeUser } from './types';
+import type { ThemeKey } from './lib/themes';
 import { apiFetch } from './lib/api';
-import { connectSocket, disconnectSocket } from './lib/socket';
+import { connectSocket, disconnectSocket, getSocket } from './lib/socket';
 import { useOnlineStatus, usePwaInstall, useThemeSync } from './hooks/useAppEnvironment';
 import { AppShell } from './components/layout/AppShell';
 import { Toast, type ToastItem } from './components/ui/Toast';
 import { LoadingSkeleton } from './components/ui/LoadingSkeleton';
 import { InstallAppModal } from './components/ui/InstallAppModal';
+import { ThemeAmbientCanvas } from './components/ui/ThemeAmbientCanvas';
+import { CallModal, type ActiveCallState } from './components/chat/CallModal';
 import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ChatScreen } from './screens/ChatScreen';
@@ -21,10 +24,17 @@ export const App: React.FC = () => {
   const [chatBadgeCount, setChatBadgeCount] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
+  const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
 
   const isOnline = useOnlineStatus();
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
-  useThemeSync(user?.theme || 'SYSTEM');
+
+  const activeThemeKey: ThemeKey =
+    (user?.themeKey as ThemeKey) ||
+    (localStorage.getItem('chatterbox_theme_key') as ThemeKey) ||
+    'midnight-neon';
+
+  useThemeSync(activeThemeKey);
 
   useEffect(() => {
     document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox` : 'Chatterbox — Private Social Chat';
@@ -57,6 +67,38 @@ export const App: React.FC = () => {
     return () => disconnectSocket();
   }, [refreshMe]);
 
+  // Global listener for incoming WebRTC 1:1 Voice / Video Calls
+  useEffect(() => {
+    if (!user) return;
+    const socket = getSocket();
+    if (!socket) return;
+
+    const onIncomingOffer = (data: {
+      fromUserId: string;
+      sdp: RTCSessionDescriptionInit;
+      kind: 'audio' | 'video';
+      callerName: string;
+      callerUsername: string;
+    }) => {
+      setActiveCall((prev) => {
+        if (prev) return prev; // Busy in another call
+        return {
+          peerUserId: data.fromUserId,
+          peerName: data.callerName,
+          peerUsername: data.callerUsername,
+          kind: data.kind,
+          direction: 'incoming',
+          incomingOffer: data.sdp,
+        };
+      });
+    };
+
+    socket.on('call:offer', onIncomingOffer);
+    return () => {
+      socket.off('call:offer', onIncomingOffer);
+    };
+  }, [user?.id]);
+
   useEffect(() => {
     if (activeNav === 'developer' && user?.role !== 'DEVELOPER') {
       setActiveNav('profile');
@@ -73,21 +115,13 @@ export const App: React.FC = () => {
   async function handleLogout() {
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // Clear local state regardless
-    }
+    } catch {}
     disconnectSocket();
     setUser(null);
     setChatBadgeCount(0);
+    setActiveCall(null);
     setActiveNav('profile');
     notify('Signed out of Chatterbox.', 'info');
-  }
-
-  async function handleNativeInstall() {
-    const accepted = await triggerInstall();
-    if (accepted) {
-      notify('Chatterbox installed on your device!', 'success');
-    }
   }
 
   if (booting) {
@@ -102,6 +136,8 @@ export const App: React.FC = () => {
 
   return (
     <>
+      <ThemeAmbientCanvas themeKey={activeThemeKey} />
+
       <Toast
         toasts={toasts}
         onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
@@ -112,8 +148,20 @@ export const App: React.FC = () => {
         onClose={() => setInstallModalOpen(false)}
         canNativeInstall={canInstall}
         isInstalled={isInstalled}
-        onNativeInstall={handleNativeInstall}
+        onNativeInstall={async () => {
+          const ok = await triggerInstall();
+          if (ok) notify('Chatterbox installed on your device!', 'success');
+        }}
       />
+
+      {user && (
+        <CallModal
+          call={activeCall}
+          currentUserName={user.primaryNickname}
+          currentUsername={user.username}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
 
       {!user ? (
         <AuthScreen
@@ -122,41 +170,50 @@ export const App: React.FC = () => {
           onOpenInstallModal={() => setInstallModalOpen(true)}
         />
       ) : (
-        <AppShell
-          active={activeNav}
-          onNavigate={setActiveNav}
-          user={user}
-          pendingRequestCount={chatBadgeCount}
-          isOnline={isOnline}
-          isInstalledPwa={isInstalled}
-          onOpenInstallModal={() => setInstallModalOpen(true)}
-        >
-          {activeNav === 'profile' && (
-            <ProfileScreen
-              user={user}
-              stats={stats}
-              onUserUpdated={setUser}
-              onStatsChanged={refreshMe}
-              onLogout={handleLogout}
-              onNotify={notify}
-            />
-          )}
+        <div className="relative z-10">
+          <AppShell
+            active={activeNav}
+            onNavigate={setActiveNav}
+            user={user}
+            pendingRequestCount={chatBadgeCount}
+            isOnline={isOnline}
+            isInstalledPwa={isInstalled}
+            onOpenInstallModal={() => setInstallModalOpen(true)}
+          >
+            {activeNav === 'profile' && (
+              <ProfileScreen
+                user={user}
+                stats={stats}
+                onUserUpdated={setUser}
+                onStatsChanged={refreshMe}
+                onLogout={handleLogout}
+                onNotify={notify}
+              />
+            )}
 
-          {activeNav === 'chat' && (
-            <ChatScreen
-              currentUser={user}
-              isOnline={isOnline}
-              onBadgeCountChange={setChatBadgeCount}
-              onNotify={notify}
-            />
-          )}
+            {activeNav === 'chat' && (
+              <ChatScreen
+                currentUser={user}
+                isOnline={isOnline}
+                onBadgeCountChange={setChatBadgeCount}
+                onStartCall={(friend, kind) =>
+                  setActiveCall({
+                    peerUserId: friend.id,
+                    peerName: friend.primaryNickname,
+                    peerUsername: friend.username,
+                    kind,
+                    direction: 'outgoing',
+                  })
+                }
+                onNotify={notify}
+              />
+            )}
 
-          {activeNav === 'posts' && (
-            <PostsScreen onStatsChanged={refreshMe} onNotify={notify} />
-          )}
+            {activeNav === 'posts' && <PostsScreen onStatsChanged={refreshMe} onNotify={notify} />}
 
-          {activeNav === 'developer' && user.role === 'DEVELOPER' && <DeveloperSpaceScreen />}
-        </AppShell>
+            {activeNav === 'developer' && user.role === 'DEVELOPER' && <DeveloperSpaceScreen />}
+          </AppShell>
+        </div>
       )}
     </>
   );

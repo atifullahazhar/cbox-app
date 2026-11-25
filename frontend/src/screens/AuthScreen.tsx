@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import {
   Terminal,
   Lock,
-  UserPlus,
-  LogIn,
   ShieldAlert,
   Download,
   Phone,
   KeyRound,
   CheckCircle2,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import type { SafeUser } from '../types';
 import { apiFetch } from '../lib/api';
@@ -29,11 +29,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password');
 
-  // Password login state
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [requires2fa, setRequires2fa] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
 
-  // Phone + OTP state (shared by OTP login & OTP signup)
   const [phone, setPhone] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -45,7 +45,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
-  // Forgot Password modal state
+  // Forgot Password modal
   const [forgotOpen, setForgotOpen] = useState(false);
   const [fpPhone, setFpPhone] = useState('');
   const [fpOtpSent, setFpOtpSent] = useState(false);
@@ -56,7 +56,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [fpError, setFpError] = useState<string | null>(null);
   const [fpSuccess, setFpSuccess] = useState<string | null>(null);
 
-  // Developer Code modal state
+  // Developer Code modal
   const [devModalOpen, setDevModalOpen] = useState(false);
   const [devIdentifier, setDevIdentifier] = useState('');
   const [devPassword, setDevPassword] = useState('');
@@ -70,20 +70,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setDemoOtpBanner(null);
     setBusy(true);
     try {
-      const res = await apiFetch<{
-        ok: boolean;
-        deliveredVia: string;
-        demoCode?: string | null;
-        message: string;
-      }>('/api/auth/otp/send', {
-        method: 'POST',
-        body: JSON.stringify({ phone, purpose }),
-      });
+      const res = await apiFetch<{ ok: boolean; demoCode?: string | null; message: string }>(
+        '/api/auth/otp/send',
+        { method: 'POST', body: JSON.stringify({ phone, purpose }) }
+      );
       setOtpSent(true);
       setInfoMsg(res.message);
-      if (res.demoCode) {
-        setDemoOtpBanner(res.demoCode);
-      }
+      if (res.demoCode) setDemoOtpBanner(res.demoCode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send OTP.');
     } finally {
@@ -98,11 +91,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       if (mode === 'login') {
         if (loginMethod === 'password') {
-          const res = await apiFetch<{ user: SafeUser }>('/api/auth/login', {
+          const res = await apiFetch<{ user?: SafeUser; requires2fa?: boolean }>('/api/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ identifier, password }),
+            body: JSON.stringify({
+              identifier,
+              password,
+              ...(requires2fa ? { totpCode } : {}),
+            }),
           });
-          onAuthenticated(res.user);
+          if (res.requires2fa) {
+            setRequires2fa(true);
+            setInfoMsg('Enter your 6-digit Authenticator App (2FA) code.');
+            return;
+          }
+          if (res.user) onAuthenticated(res.user);
         } else {
           const res = await apiFetch<{ user: SafeUser }>('/api/auth/login/otp', {
             method: 'POST',
@@ -135,13 +137,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setFpDemoOtp(null);
     setFpBusy(true);
     try {
-      const res = await apiFetch<{ demoCode?: string | null; message: string }>(
-        '/api/auth/otp/send',
-        {
-          method: 'POST',
-          body: JSON.stringify({ phone: fpPhone, purpose: 'RESET_PASSWORD' }),
-        }
-      );
+      const res = await apiFetch<{ demoCode?: string | null }>('/api/auth/otp/send', {
+        method: 'POST',
+        body: JSON.stringify({ phone: fpPhone, purpose: 'RESET_PASSWORD' }),
+      });
       setFpOtpSent(true);
       if (res.demoCode) setFpDemoOtp(res.demoCode);
     } catch (err) {
@@ -177,11 +176,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       const res = await apiFetch<{ user: SafeUser }>('/api/auth/developer-code', {
         method: 'POST',
-        body: JSON.stringify({
-          identifier: devIdentifier,
-          password: devPassword,
-          code: devCode,
-        }),
+        body: JSON.stringify({ identifier: devIdentifier, password: devPassword, code: devCode }),
       });
       setDevCode('');
       setDevModalOpen(false);
@@ -194,141 +189,138 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   }
 
   return (
-    <div className="min-h-[100dvh] bg-cbox-bg flex flex-col items-center justify-center p-4 py-8">
-      <div className="w-full max-w-md space-y-5">
-        <div className="text-center space-y-2">
-          <div className="flex justify-center">
-            <CboxLogo size={42} />
+    <div className="relative z-10 min-h-[100dvh] flex items-center justify-center p-4 py-8">
+      <div className="w-full max-w-4xl grid lg:grid-cols-2 gap-8 items-center animate-fade-slide">
+        {/* Left: Instagram-style Live Phone Showcase (Desktop) */}
+        <div className="hidden lg:flex flex-col items-center justify-center space-y-5">
+          <div className="relative w-72 rounded-[2.6rem] border-[6px] border-cbox-border bg-cbox-surface/90 backdrop-blur-xl p-4 shadow-2xl">
+            <div className="mx-auto w-20 h-1.5 rounded-full bg-cbox-border mb-4" />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <CboxLogo size={24} />
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cbox-accent/15 text-cbox-accent">
+                  Live
+                </span>
+              </div>
+              {/* Story rings preview */}
+              <div className="flex gap-2.5 py-1">
+                {['🌸', '✨', '🔥', '💜'].map((e, i) => (
+                  <div
+                    key={i}
+                    className="h-11 w-11 rounded-full p-0.5 bg-gradient-to-tr from-cbox-accent via-pink-500 to-cbox-violet flex items-center justify-center"
+                  >
+                    <div className="h-full w-full rounded-full bg-cbox-surface flex items-center justify-center text-sm">
+                      {e}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Chat bubbles preview */}
+              <div className="space-y-2 pt-1">
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-cbox-elevated px-3 py-2 text-xs text-cbox-text">
+                  Cherry Blossom theme looks unreal 🌸
+                </div>
+                <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-gradient-to-r from-cbox-accent to-cbox-violet px-3 py-2 text-xs text-white font-medium">
+                  Voice call + live group polls too! ⚡
+                </div>
+              </div>
+              <div className="rounded-xl bg-cbox-elevated/80 border border-cbox-border p-3 text-[11px] text-cbox-muted flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-cbox-accent shrink-0" />
+                <span>10 Animated Themes · Secret Vault · 1:1 Calls</span>
+              </div>
+            </div>
           </div>
-          <p className="text-sm text-cbox-muted">
-            Phone-verified private messaging, 24h stories, and Secret Mode across desktop & Android.
+          <p className="text-xs text-cbox-muted text-center max-w-xs">
+            One phone number, one verified Chatterbox ID — secured by Python Argon2id, OTP, and 2FA.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-cbox-border bg-cbox-surface p-6 sm:p-7 shadow-soft space-y-5">
-          <div className="flex rounded-xl bg-cbox-elevated p-1 border border-cbox-border">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login');
-                setError(null);
-                setInfoMsg(null);
-                setOtpSent(false);
-                setDemoOtpBanner(null);
-              }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-semibold transition ${
-                mode === 'login'
-                  ? 'bg-cbox-surface text-cbox-text shadow-sm'
-                  : 'text-cbox-muted hover:text-cbox-text'
-              }`}
-            >
-              <LogIn className="h-4 w-4" /> Log in
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('signup');
-                setError(null);
-                setInfoMsg(null);
-                setOtpSent(false);
-                setDemoOtpBanner(null);
-              }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-semibold transition ${
-                mode === 'signup'
-                  ? 'bg-cbox-surface text-cbox-text shadow-sm'
-                  : 'text-cbox-muted hover:text-cbox-text'
-              }`}
-            >
-              <UserPlus className="h-4 w-4" /> Create account
-            </button>
-          </div>
-
-          {mode === 'login' && (
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMethod('password');
-                  setError(null);
-                }}
-                className={`flex-1 py-1.5 rounded-lg border font-medium transition ${
-                  loginMethod === 'password'
-                    ? 'border-cbox-accent bg-cbox-accent/10 text-cbox-accent'
-                    : 'border-cbox-border text-cbox-muted'
-                }`}
-              >
-                Password Login
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMethod('otp');
-                  setError(null);
-                  setOtpSent(false);
-                }}
-                className={`flex-1 py-1.5 rounded-lg border font-medium transition ${
-                  loginMethod === 'otp'
-                    ? 'border-cbox-accent bg-cbox-accent/10 text-cbox-accent'
-                    : 'border-cbox-border text-cbox-muted'
-                }`}
-              >
-                Phone OTP Login
-              </button>
+        {/* Right: Sleek Instagram-Style Auth Card */}
+        <div className="w-full max-w-[390px] mx-auto space-y-3.5">
+          <div className="rounded-2xl border border-cbox-border bg-cbox-surface/90 backdrop-blur-xl px-7 py-8 shadow-2xl space-y-6">
+            <div className="text-center space-y-2">
+              <div className="flex justify-center">
+                <CboxLogo size={40} />
+              </div>
+              <p className="text-xs text-cbox-muted">
+                {mode === 'login'
+                  ? 'Sign in to chat, call, and share moments.'
+                  : 'Create your phone-verified Chatterbox ID.'}
+              </p>
             </div>
-          )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === 'login' && loginMethod === 'password' ? (
-              <>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-cbox-muted">Phone Number or Username</span>
+            {mode === 'login' && (
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-cbox-elevated border border-cbox-border text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginMethod('password');
+                    setRequires2fa(false);
+                    setError(null);
+                  }}
+                  className={`py-2 rounded-lg font-semibold transition ${
+                    loginMethod === 'password'
+                      ? 'bg-cbox-surface text-cbox-text shadow-sm'
+                      : 'text-cbox-muted'
+                  }`}
+                >
+                  Password
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginMethod('otp');
+                    setOtpSent(false);
+                    setError(null);
+                  }}
+                  className={`py-2 rounded-lg font-semibold transition ${
+                    loginMethod === 'otp'
+                      ? 'bg-cbox-surface text-cbox-text shadow-sm'
+                      : 'text-cbox-muted'
+                  }`}
+                >
+                  Phone OTP
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {mode === 'login' && loginMethod === 'password' ? (
+                <>
                   <input
                     type="text"
                     autoCapitalize="none"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     required
-                    placeholder="+919876543210 or username"
-                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+                    placeholder="Phone number or username"
+                    className="w-full rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text placeholder:text-cbox-muted/75 focus:border-cbox-accent transition"
                   />
-                </label>
-
-                <label className="block space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-cbox-muted">Password</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFpPhone('');
-                        setFpOtpSent(false);
-                        setFpError(null);
-                        setFpSuccess(null);
-                        setFpDemoOtp(null);
-                        setForgotOpen(true);
-                      }}
-                      className="text-xs text-cbox-accent hover:underline font-medium"
-                    >
-                      Forgot password?
-                    </button>
-                  </div>
                   <input
                     type="password"
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    placeholder="Enter your password"
-                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+                    placeholder="Password"
+                    className="w-full rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text placeholder:text-cbox-muted/75 focus:border-cbox-accent transition"
                   />
-                </label>
-              </>
-            ) : (
-              <>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-cbox-muted flex items-center gap-1.5">
-                    <Phone className="h-3.5 w-3.5 text-cbox-accent" />
-                    Mobile Number (1 phone = 1 Chatterbox ID)
-                  </span>
+                  {requires2fa && (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      required
+                      autoFocus
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="6-digit Authenticator 2FA code"
+                      className="w-full rounded-xl bg-cbox-elevated border border-cbox-violet px-3.5 py-2.5 text-center font-mono tracking-widest text-sm text-cbox-text"
+                    />
+                  )}
+                </>
+              ) : (
+                <>
                   <div className="flex gap-2">
                     <input
                       type="tel"
@@ -336,35 +328,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       onChange={(e) => setPhone(e.target.value)}
                       required
                       placeholder="+91 9876543210"
-                      className="flex-1 min-w-0 rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+                      className="flex-1 min-w-0 rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
                     />
                     <button
                       type="button"
                       disabled={busy || phone.trim().length < 8}
                       onClick={() => handleSendOtp(mode === 'signup' ? 'SIGNUP' : 'LOGIN')}
-                      className="px-3.5 py-2.5 rounded-xl border border-cbox-accent text-cbox-accent hover:bg-cbox-accent/10 text-xs font-semibold shrink-0 disabled:opacity-40"
+                      className="px-3.5 py-2.5 rounded-xl bg-cbox-accent/15 border border-cbox-accent/40 text-cbox-accent text-xs font-bold shrink-0 disabled:opacity-40"
                     >
-                      {otpSent ? 'Resend OTP' : 'Send OTP'}
+                      {otpSent ? 'Resend' : 'Send OTP'}
                     </button>
                   </div>
-                </label>
 
-                {demoOtpBanner && (
-                  <div className="p-3 rounded-xl bg-cbox-violet/15 border border-cbox-violet/35 text-xs text-cbox-text">
-                    <strong>Demo SMS Mode:</strong> Your 6-digit OTP is{' '}
-                    <span className="font-mono text-sm font-bold text-cbox-accent tracking-widest">
-                      {demoOtpBanner}
-                    </span>
-                    <span className="block text-[11px] text-cbox-muted mt-0.5">
-                      Configure Twilio or MSG91 in Render env vars for live SMS delivery.
-                    </span>
-                  </div>
-                )}
+                  {demoOtpBanner && (
+                    <div className="p-3 rounded-xl bg-cbox-violet/15 border border-cbox-violet/35 text-xs text-cbox-text">
+                      <strong>Demo OTP:</strong>{' '}
+                      <span className="font-mono text-sm font-bold text-cbox-accent tracking-widest">
+                        {demoOtpBanner}
+                      </span>
+                      <span className="block text-[10px] text-cbox-muted mt-0.5">
+                        Add Twilio/MSG91 keys on Render for live SMS.
+                      </span>
+                    </div>
+                  )}
 
-                {otpSent && (
-                  <>
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-medium text-cbox-muted">6-Digit OTP</span>
+                  {otpSent && (
+                    <>
                       <input
                         type="text"
                         inputMode="numeric"
@@ -372,27 +361,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                         required
-                        placeholder="Enter 6-digit code"
-                        className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text tracking-widest font-mono"
+                        placeholder="Enter 6-digit OTP"
+                        className="w-full rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm font-mono tracking-widest text-cbox-text"
                       />
-                    </label>
-
-                    {mode === 'signup' && (
-                      <>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-medium text-cbox-muted">Choose Unique Username</span>
+                      {mode === 'signup' && (
+                        <>
                           <input
                             type="text"
                             autoCapitalize="none"
                             value={signupUsername}
                             onChange={(e) => setSignupUsername(e.target.value)}
                             required
-                            placeholder="e.g. atif_azhar"
-                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+                            placeholder="Unique username (e.g. atif_azhar)"
+                            className="w-full rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
                           />
-                        </label>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-medium text-cbox-muted">Create Password</span>
                           <input
                             type="password"
                             autoComplete="new-password"
@@ -400,86 +382,137 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             onChange={(e) => setSignupPassword(e.target.value)}
                             required
                             minLength={8}
-                            placeholder="At least 8 characters"
-                            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
+                            placeholder="Create password (8+ chars)"
+                            className="w-full rounded-xl bg-cbox-elevated/80 border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
                           />
-                        </label>
-                      </>
-                    )}
-                  </>
-                )}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {infoMsg && !error && <p className="text-xs text-cbox-accent text-center">{infoMsg}</p>}
+              {error && (
+                <div className="p-2.5 rounded-xl bg-cbox-danger/10 border border-cbox-danger/30 text-xs text-cbox-danger text-center">
+                  {error}
+                </div>
+              )}
+
+              {((mode === 'login' && loginMethod === 'password') || otpSent) && (
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cbox-accent to-cbox-violet text-white font-bold text-sm shadow-md hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50"
+                >
+                  {busy
+                    ? 'Please wait…'
+                    : mode === 'login'
+                      ? requires2fa
+                        ? 'Verify 2FA & Log in'
+                        : 'Log in'
+                      : 'Sign up'}
+                </button>
+              )}
+            </form>
+
+            <div className="flex items-center gap-3 text-[11px] text-cbox-muted">
+              <div className="h-px flex-1 bg-cbox-border" />
+              <span>OR</span>
+              <div className="h-px flex-1 bg-cbox-border" />
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setFpPhone('');
+                  setFpOtpSent(false);
+                  setFpError(null);
+                  setFpSuccess(null);
+                  setFpDemoOtp(null);
+                  setForgotOpen(true);
+                }}
+                className="text-cbox-accent hover:underline font-medium"
+              >
+                Forgot password?
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDevIdentifier(identifier || phone);
+                  setDevPassword('');
+                  setDevCode('');
+                  setDevError(null);
+                  setDevModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1 text-cbox-violet hover:underline font-medium"
+              >
+                <Terminal className="h-3.5 w-3.5" /> Developer code
+              </button>
+            </div>
+          </div>
+
+          {/* Instagram-style Secondary Switch Card */}
+          <div className="rounded-2xl border border-cbox-border bg-cbox-surface/90 backdrop-blur-xl py-4 px-6 text-center text-sm text-cbox-text shadow-soft">
+            {mode === 'login' ? (
+              <>
+                Don&apos;t have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('signup');
+                    setOtpSent(false);
+                    setError(null);
+                    setDemoOtpBanner(null);
+                  }}
+                  className="font-bold text-cbox-accent hover:underline"
+                >
+                  Sign up
+                </button>
+              </>
+            ) : (
+              <>
+                Have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login');
+                    setOtpSent(false);
+                    setError(null);
+                    setDemoOtpBanner(null);
+                  }}
+                  className="font-bold text-cbox-accent hover:underline"
+                >
+                  Log in
+                </button>
               </>
             )}
+          </div>
 
-            {infoMsg && !error && (
-              <p className="text-xs text-cbox-accent">{infoMsg}</p>
-            )}
-
-            {error && (
-              <div
-                role="alert"
-                className="p-3 rounded-xl bg-cbox-danger/10 border border-cbox-danger/30 text-xs text-cbox-danger"
-              >
-                {error}
-              </div>
-            )}
-
-            {(mode === 'login' && loginMethod === 'password') || otpSent ? (
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full py-3 rounded-xl bg-cbox-accent text-slate-950 hover:bg-cbox-accentHover font-semibold text-sm transition disabled:opacity-50"
-              >
-                {busy
-                  ? 'Please wait…'
-                  : mode === 'login'
-                    ? loginMethod === 'otp'
-                      ? 'Verify OTP & Log in'
-                      : 'Log in'
-                    : 'Verify OTP & Create Account'}
-              </button>
-            ) : null}
-          </form>
-
-          <div className="pt-3 border-t border-cbox-border flex flex-wrap items-center justify-between gap-2 text-xs text-cbox-muted">
-            <span className="inline-flex items-center gap-1">
-              <Lock className="h-3.5 w-3.5" /> Python Argon2id + OTP Security
-            </span>
+          {!isInstalledPwa && (
             <button
               type="button"
-              onClick={() => {
-                setDevIdentifier(identifier || phone);
-                setDevPassword('');
-                setDevCode('');
-                setDevError(null);
-                setDevModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1 text-cbox-violet hover:underline font-medium"
+              onClick={onOpenInstallModal}
+              className="w-full py-2.5 px-4 rounded-xl border border-cbox-border bg-cbox-surface/80 hover:bg-cbox-elevated text-xs font-semibold text-cbox-text flex items-center justify-center gap-2 transition"
             >
-              <Terminal className="h-3.5 w-3.5" />
-              Developer code
+              <Download className="h-4 w-4 text-cbox-accent" />
+              Get the Chatterbox App on Mobile & Desktop
             </button>
-          </div>
-        </div>
+          )}
 
-        {!isInstalledPwa && (
-          <button
-            type="button"
-            onClick={onOpenInstallModal}
-            className="w-full py-2.5 px-4 rounded-xl border border-cbox-border bg-cbox-surface hover:bg-cbox-elevated text-xs font-semibold text-cbox-text flex items-center justify-center gap-2 transition"
-          >
-            <Download className="h-4 w-4 text-cbox-accent" />
-            Install Chatterbox App on Mobile or Desktop
-          </button>
-        )}
+          <p className="text-[11px] text-center text-cbox-muted flex items-center justify-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-cbox-accent" />
+            Strict 1 Phone = 1 ID · Python Argon2id + 2FA
+          </p>
+        </div>
       </div>
 
-      {/* Forgot Password Modal (Phone OTP Reset) */}
+      {/* Forgot Password Modal */}
       <Modal
         open={forgotOpen}
         onClose={() => setForgotOpen(false)}
         title="Reset password via Phone OTP"
-        description="Verify your registered mobile number with a 6-digit OTP to set a new password."
         maxWidthClass="max-w-md"
       >
         {fpSuccess ? (
@@ -496,76 +529,61 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           </div>
         ) : (
           <form onSubmit={handleResetPassword} className="space-y-4">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-cbox-muted">Registered Mobile Number</span>
-              <div className="flex gap-2">
-                <input
-                  type="tel"
-                  required
-                  value={fpPhone}
-                  onChange={(e) => setFpPhone(e.target.value)}
-                  placeholder="+91 9876543210"
-                  className="flex-1 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-base sm:text-sm text-cbox-text"
-                />
-                <button
-                  type="button"
-                  disabled={fpBusy || fpPhone.trim().length < 8}
-                  onClick={handleSendForgotOtp}
-                  className="px-3 py-2 rounded-xl border border-cbox-accent text-cbox-accent text-xs font-semibold shrink-0 disabled:opacity-40"
-                >
-                  {fpOtpSent ? 'Resend' : 'Send OTP'}
-                </button>
-              </div>
-            </label>
-
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                required
+                value={fpPhone}
+                onChange={(e) => setFpPhone(e.target.value)}
+                placeholder="+91 9876543210"
+                className="flex-1 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
+              />
+              <button
+                type="button"
+                disabled={fpBusy || fpPhone.trim().length < 8}
+                onClick={handleSendForgotOtp}
+                className="px-3 py-2 rounded-xl border border-cbox-accent text-cbox-accent text-xs font-semibold"
+              >
+                {fpOtpSent ? 'Resend' : 'Send OTP'}
+              </button>
+            </div>
             {fpDemoOtp && (
               <div className="p-3 rounded-xl bg-cbox-violet/15 border border-cbox-violet/35 text-xs text-cbox-text">
-                <strong>Demo Reset OTP:</strong>{' '}
-                <span className="font-mono font-bold text-cbox-accent tracking-widest">{fpDemoOtp}</span>
+                <strong>Demo Reset OTP:</strong> <span className="font-mono font-bold text-cbox-accent">{fpDemoOtp}</span>
               </div>
             )}
-
             {fpOtpSent && (
               <>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-cbox-muted">6-Digit OTP</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    required
-                    value={fpOtp}
-                    onChange={(e) => setFpOtp(e.target.value.replace(/\D/g, ''))}
-                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-base sm:text-sm text-cbox-text tracking-widest font-mono"
-                  />
-                </label>
-
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-cbox-muted">New Password (8+ chars)</span>
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={fpNewPassword}
-                    onChange={(e) => setFpNewPassword(e.target.value)}
-                    className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-base sm:text-sm text-cbox-text"
-                  />
-                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  required
+                  value={fpOtp}
+                  onChange={(e) => setFpOtp(e.target.value.replace(/\D/g, ''))}
+                  placeholder="6-digit OTP"
+                  className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm font-mono tracking-widest text-cbox-text"
+                />
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={fpNewPassword}
+                  onChange={(e) => setFpNewPassword(e.target.value)}
+                  placeholder="New password (8+ chars)"
+                  className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-sm text-cbox-text"
+                />
+                <button
+                  type="submit"
+                  disabled={fpBusy}
+                  className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-semibold text-sm flex items-center justify-center gap-1.5"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  {fpBusy ? 'Resetting…' : 'Reset Password'}
+                </button>
               </>
             )}
-
             {fpError && <p className="text-xs text-cbox-danger">{fpError}</p>}
-
-            {fpOtpSent && (
-              <button
-                type="submit"
-                disabled={fpBusy}
-                className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 font-semibold text-sm flex items-center justify-center gap-1.5"
-              >
-                <KeyRound className="h-4 w-4" />
-                {fpBusy ? 'Resetting…' : 'Reset Password'}
-              </button>
-            )}
           </form>
         )}
       </Modal>
@@ -575,73 +593,46 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         open={devModalOpen}
         onClose={() => setDevModalOpen(false)}
         title="Developer access verification"
-        description="Sign in to your Chatterbox account and enter the server-configured developer code."
         maxWidthClass="max-w-md"
       >
-        <form onSubmit={handleDeveloperVerify} className="space-y-4">
-          <div className="p-3 rounded-xl bg-cbox-violet/10 border border-cbox-violet/25 text-xs text-cbox-text flex items-start gap-2.5">
+        <form onSubmit={handleDeveloperVerify} className="space-y-3.5">
+          <div className="p-3 rounded-xl bg-cbox-violet/10 border border-cbox-violet/25 text-xs text-cbox-text flex items-start gap-2">
             <ShieldAlert className="h-4 w-4 text-cbox-violet shrink-0 mt-0.5" />
-            <span>
-              Verified on the server and rate-limited. Developer role never grants access to private
-              chats or friends-only posts.
-            </span>
+            <span>Server-verified & audited. Developer role never bypasses private chat privacy.</span>
           </div>
-
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-cbox-muted">Phone or Username</span>
-            <input
-              type="text"
-              required
-              autoCapitalize="none"
-              value={devIdentifier}
-              onChange={(e) => setDevIdentifier(e.target.value)}
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
-            />
-          </label>
-
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-cbox-muted">Account Password</span>
-            <input
-              type="password"
-              required
-              value={devPassword}
-              onChange={(e) => setDevPassword(e.target.value)}
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text"
-            />
-          </label>
-
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-cbox-muted">Developer Code</span>
-            <input
-              type="password"
-              inputMode="numeric"
-              autoComplete="off"
-              required
-              value={devCode}
-              onChange={(e) => setDevCode(e.target.value)}
-              placeholder="Enter numeric developer code"
-              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-base sm:text-sm text-cbox-text tracking-widest"
-            />
-          </label>
-
+          <input
+            type="text"
+            required
+            value={devIdentifier}
+            onChange={(e) => setDevIdentifier(e.target.value)}
+            placeholder="Phone or username"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text"
+          />
+          <input
+            type="password"
+            required
+            value={devPassword}
+            onChange={(e) => setDevPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text"
+          />
+          <input
+            type="password"
+            inputMode="numeric"
+            required
+            value={devCode}
+            onChange={(e) => setDevCode(e.target.value)}
+            placeholder="Developer code"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3.5 py-2.5 text-sm text-cbox-text tracking-widest"
+          />
           {devError && <p className="text-xs text-cbox-danger">{devError}</p>}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setDevModalOpen(false)}
-              className="px-4 py-2 rounded-xl text-sm border border-cbox-border text-cbox-text"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={devBusy}
-              className="px-4 py-2 rounded-xl text-sm font-semibold bg-cbox-violet text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {devBusy ? 'Verifying…' : 'Verify & Sign in'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={devBusy}
+            className="w-full py-2.5 rounded-xl bg-cbox-violet text-white font-semibold text-sm"
+          >
+            {devBusy ? 'Verifying…' : 'Verify & Sign in'}
+          </button>
         </form>
       </Modal>
     </div>

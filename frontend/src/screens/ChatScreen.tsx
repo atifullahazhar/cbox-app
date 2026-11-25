@@ -10,6 +10,8 @@ import {
   Lock,
   Timer,
   EyeOff,
+  Phone,
+  Video,
 } from 'lucide-react';
 import type {
   ChatMessage,
@@ -25,6 +27,7 @@ import { FriendRow } from '../components/chat/FriendRow';
 import { RequestCard } from '../components/chat/RequestCard';
 import { ChatBubble } from '../components/chat/ChatBubble';
 import { MessageComposer } from '../components/chat/MessageComposer';
+import { GroupChatPanel } from '../components/chat/GroupChatPanel';
 import { UserProfileModal } from '../components/profile/UserProfileModal';
 import { ReportModal } from '../components/ui/ReportModal';
 import { Avatar } from '../components/ui/Avatar';
@@ -36,15 +39,17 @@ interface ChatScreenProps {
   currentUser: SafeUser;
   isOnline: boolean;
   onBadgeCountChange: (count: number) => void;
+  onStartCall: (friend: SafeUser, kind: 'audio' | 'video') => void;
   onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void;
 }
 
-type ChatTab = 'general' | 'sent' | 'received';
+type ChatTab = 'general' | 'groups' | 'sent' | 'received';
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   currentUser,
   isOnline,
   onBadgeCountChange,
+  onStartCall,
   onNotify,
 }) => {
   const [tab, setTab] = useState<ChatTab>('general');
@@ -55,7 +60,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>([]);
   const [receivedRequests, setReceivedRequests] = useState<FriendRequestItem[]>([]);
 
-  // Secret Mode Vault unlock state
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -115,9 +119,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   function markConversationRead(convId: string) {
     apiFetch(`/api/chat/conversations/${convId}/read`, { method: 'POST' }).catch(() => {});
-    setFriends((prev) =>
-      prev.map((f) => (f.conversationId === convId ? { ...f, unreadCount: 0 } : f))
-    );
+    setFriends((prev) => prev.map((f) => (f.conversationId === convId ? { ...f, unreadCount: 0 } : f)));
   }
 
   useEffect(() => {
@@ -134,30 +136,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         if (isActive) return [...prev, msg];
         return prev;
       });
-
       if (isActive && msg.senderId !== currentUser.id) {
         markConversationRead(msg.conversationId);
         setFriendTyping(false);
       }
-
       setFriends((prev) =>
         prev.map((item) =>
           item.conversationId === msg.conversationId
             ? {
                 ...item,
-                unreadCount:
-                  !isActive && msg.senderId !== currentUser.id
-                    ? (item.unreadCount || 0) + 1
-                    : item.unreadCount,
+                unreadCount: !isActive && msg.senderId !== currentUser.id ? (item.unreadCount || 0) + 1 : item.unreadCount,
                 lastMessage: {
                   id: msg.id,
                   senderId: msg.senderId,
-                  content:
-                    msg.mediaKind === 'IMAGE'
-                      ? msg.content || '📷 Photo'
-                      : msg.mediaKind === 'AUDIO'
-                        ? '🎤 Voice note'
-                        : msg.content,
+                  content: msg.mediaKind === 'IMAGE' ? msg.content || '📷 Photo' : msg.mediaKind === 'AUDIO' ? '🎤 Voice note' : msg.content,
                   createdAt: msg.createdAt,
                 },
               }
@@ -166,40 +158,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       );
     };
 
-    const onMessageUpdated = (msg: ChatMessage) => {
-      setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
-    };
-
+    const onMessageUpdated = (msg: ChatMessage) => setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     const onMessageRead = ({ conversationId }: { conversationId: string }) => {
       if (conversationId === activeConversationId) {
-        setMessages((prev) =>
-          prev.map((m) => (m.senderId === currentUser.id ? { ...m, deliveryState: 'READ' } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.senderId === currentUser.id ? { ...m, deliveryState: 'READ' } : m)));
       }
     };
-
     const onDisappear = (data: { conversationId: string; disappearAfterSeconds: number }) => {
-      if (data.conversationId === activeConversationId) {
-        setDisappearSeconds(data.disappearAfterSeconds);
-      }
+      if (data.conversationId === activeConversationId) setDisappearSeconds(data.disappearAfterSeconds);
     };
-
     const onTyping = (data: { conversationId: string; userId: string; isTyping: boolean }) => {
-      if (data.conversationId === activeConversationId && data.userId !== currentUser.id) {
-        setFriendTyping(data.isTyping);
-      }
+      if (data.conversationId === activeConversationId && data.userId !== currentUser.id) setFriendTyping(data.isTyping);
     };
-
     const onPresence = ({ userId, online }: { userId: string; online: boolean }) => {
       setFriends((prev) => prev.map((f) => (f.friend.id === userId ? { ...f, online } : f)));
       setActiveFriend((prev) => (prev && prev.friend.id === userId ? { ...prev, online } : prev));
     };
-
     const onRequestReceived = (req: FriendRequestItem) => {
       setReceivedRequests((prev) => (prev.some((r) => r.id === req.id) ? prev : [req, ...prev]));
       onNotify(`New friend request from @${req.user.username}`, 'info');
     };
-
     const onRefresh = () => refreshHub();
 
     socket.on('message:new', onMessageNew);
@@ -238,10 +216,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     return friends.filter((f) => {
       if (Boolean(f.hiddenInVault) !== vaultUnlocked) return false;
       if (!q) return true;
-      return (
-        f.friend.username.toLowerCase().includes(q) ||
-        f.friend.primaryNickname.toLowerCase().includes(q)
-      );
+      return f.friend.username.toLowerCase().includes(q) || f.friend.primaryNickname.toLowerCase().includes(q);
     });
   }, [friends, filterText, vaultUnlocked]);
 
@@ -249,10 +224,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     e.preventDefault();
     setPinError(null);
     try {
-      await apiFetch('/api/auth/secret-pin/verify', {
-        method: 'POST',
-        body: JSON.stringify({ pin: pinInput }),
-      });
+      await apiFetch('/api/auth/secret-pin/verify', { method: 'POST', body: JSON.stringify({ pin: pinInput }) });
       setVaultUnlocked(true);
       setPinModalOpen(false);
       setPinInput('');
@@ -276,15 +248,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           { method: 'POST' }
         );
         convId = created.conversation.id;
-        setFriends((prev) =>
-          prev.map((f) => (f.friend.id === item.friend.id ? { ...f, conversationId: convId } : f))
-        );
+        setFriends((prev) => prev.map((f) => (f.friend.id === item.friend.id ? { ...f, conversationId: convId } : f)));
       }
       setActiveConversationId(convId);
-      const res = await apiFetch<{
-        conversation: { disappearAfterSeconds: number; hiddenInVault: boolean };
-        messages: ChatMessage[];
-      }>(`/api/chat/conversations/${convId}/messages`);
+      const res = await apiFetch<{ conversation: { disappearAfterSeconds: number }; messages: ChatMessage[] }>(
+        `/api/chat/conversations/${convId}/messages`
+      );
       setMessages(res.messages);
       setDisappearSeconds(res.conversation.disappearAfterSeconds || 0);
       markConversationRead(convId);
@@ -306,17 +275,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         body: JSON.stringify({ hidden: nextHidden }),
       });
       setFriends((prev) =>
-        prev.map((f) =>
-          f.conversationId === activeConversationId ? { ...f, hiddenInVault: nextHidden } : f
-        )
+        prev.map((f) => (f.conversationId === activeConversationId ? { ...f, hiddenInVault: nextHidden } : f))
       );
       setActiveFriend((prev) => (prev ? { ...prev, hiddenInVault: nextHidden } : prev));
-      onNotify(
-        nextHidden ? 'Chat moved to your Secret Vault.' : 'Chat restored to General list.',
-        'success'
-      );
+      onNotify(nextHidden ? 'Chat moved to Secret Vault.' : 'Chat restored to General.', 'success');
     } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to update Secret Vault.', 'error');
+      onNotify(err instanceof Error ? err.message : 'Failed to update vault.', 'error');
     }
   }
 
@@ -328,20 +292,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         body: JSON.stringify({ seconds }),
       });
       setDisappearSeconds(seconds);
-      onNotify(
-        seconds === 0 ? 'Disappearing messages turned off.' : 'Disappearing timer updated.',
-        'info'
-      );
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to update timer.', 'error');
-    }
+      onNotify(seconds === 0 ? 'Disappearing timer off.' : 'Disappearing timer updated.', 'info');
+    } catch {}
   }
 
   function handleTypingChange(isTyping: boolean) {
     const socket = getSocket();
-    if (socket && activeConversationId) {
-      socket.emit('chat:typing', { conversationId: activeConversationId, isTyping });
-    }
+    if (socket && activeConversationId) socket.emit('chat:typing', { conversationId: activeConversationId, isTyping });
   }
 
   async function sendMessage(content: string, retryTempId?: string) {
@@ -349,46 +306,31 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     const tempId = retryTempId || `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const replyRef = replyTo;
     setReplyTo(null);
-
     const optimistic: ChatMessage = {
       id: tempId,
       conversationId: activeConversationId,
       senderId: currentUser.id,
       clientTempId: tempId,
       content,
-      replyTo: replyRef
-        ? { id: replyRef.id, senderId: replyRef.senderId, content: replyRef.content }
-        : null,
+      replyTo: replyRef ? { id: replyRef.id, senderId: replyRef.senderId, content: replyRef.content } : null,
       deliveryState: 'SENDING',
       createdAt: new Date().toISOString(),
     };
-
     setMessages((prev) =>
       retryTempId ? prev.map((m) => (m.id === retryTempId ? optimistic : m)) : [...prev, optimistic]
     );
-
     if (!isOnline) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...m, deliveryState: 'FAILED' } : m))
-      );
-      onNotify('You are offline. Tap Retry when reconnected.', 'error');
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, deliveryState: 'FAILED' } : m)));
       return;
     }
-
     try {
       const res = await apiFetch<{ message: ChatMessage }>(
         `/api/chat/conversations/${activeConversationId}/messages`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ content, clientTempId: tempId, replyToId: replyRef?.id }),
-        }
+        { method: 'POST', body: JSON.stringify({ content, clientTempId: tempId, replyToId: replyRef?.id }) }
       );
       setMessages((prev) => prev.map((m) => (m.id === tempId ? res.message : m)));
-    } catch (err) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...m, deliveryState: 'FAILED' } : m))
-      );
-      onNotify(err instanceof Error ? err.message : 'Message failed to send.', 'error');
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, deliveryState: 'FAILED' } : m)));
     }
   }
 
@@ -417,9 +359,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         body: JSON.stringify({ emoji }),
       });
       setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Reaction failed.', 'error');
-    }
+    } catch {}
   }
 
   async function handleEditMessage(messageId: string, content: string) {
@@ -429,33 +369,24 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         body: JSON.stringify({ content }),
       });
       setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to edit message.', 'error');
-    }
+    } catch {}
   }
 
   async function handleDeleteMessage(messageId: string) {
     try {
-      const res = await apiFetch<{ message: ChatMessage }>(`/api/chat/messages/${messageId}`, {
-        method: 'DELETE',
-      });
+      const res = await apiFetch<{ message: ChatMessage }>(`/api/chat/messages/${messageId}`, { method: 'DELETE' });
       setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to delete message.', 'error');
-    }
+    } catch {}
   }
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
-    const cleaned = lookupInput.trim();
-    if (!cleaned) return;
+    if (!lookupInput.trim()) return;
     setLookupBusy(true);
     setLookupError(null);
     setLookupResult(null);
     try {
-      const res = await apiFetch<LookupResult>(
-        `/api/friends/lookup?username=${encodeURIComponent(cleaned)}`
-      );
+      const res = await apiFetch<LookupResult>(`/api/friends/lookup?username=${encodeURIComponent(lookupInput.trim())}`);
       setLookupResult(res);
     } catch (err) {
       setLookupError(err instanceof Error ? err.message : 'User lookup failed.');
@@ -488,8 +419,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       await apiFetch(`/api/friends/requests/${requestId}/accept`, { method: 'POST' });
       onNotify('Friend request accepted.', 'success');
       await refreshHub();
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to accept request.', 'error');
     } finally {
       setActionBusyId(null);
     }
@@ -500,9 +429,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     try {
       await apiFetch(`/api/friends/requests/${requestId}/deny`, { method: 'POST' });
       setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
-      onNotify('Friend request denied.', 'info');
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to deny request.', 'error');
     } finally {
       setActionBusyId(null);
     }
@@ -513,9 +439,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     try {
       await apiFetch(`/api/friends/requests/${requestId}`, { method: 'DELETE' });
       setSentRequests((prev) => prev.filter((r) => r.id !== requestId));
-      onNotify('Friend request canceled.', 'info');
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Failed to cancel request.', 'error');
     } finally {
       setActionBusyId(null);
     }
@@ -525,10 +448,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     if (!blockTarget) return;
     setBlocking(true);
     try {
-      await apiFetch('/api/friends/blocks', {
-        method: 'POST',
-        body: JSON.stringify({ userId: blockTarget.id }),
-      });
+      await apiFetch('/api/friends/blocks', { method: 'POST', body: JSON.stringify({ userId: blockTarget.id }) });
       if (activeFriend?.friend.id === blockTarget.id) {
         setActiveFriend(null);
         setActiveConversationId(null);
@@ -544,50 +464,79 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   }
 
+  if (tab === 'groups') {
+    return (
+      <div className="space-y-4 animate-fade-slide">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-cbox-text">Groups & Communities</h1>
+            <p className="text-xs text-cbox-muted">Group chats, invite links, @mentions & live polls.</p>
+          </div>
+        </div>
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          options={[
+            { id: 'general', label: 'General', badge: filteredFriends.length },
+            { id: 'groups', label: 'Groups' },
+            { id: 'sent', label: 'Sent', badge: sentRequests.length },
+            { id: 'received', label: 'Received', badge: receivedRequests.length },
+          ]}
+        />
+        <GroupChatPanel friends={friends} onNotify={onNotify} />
+      </div>
+    );
+  }
+
   const conversationPanel = activeFriend ? (
-    <section className="flex flex-col h-[calc(100dvh-10.5rem)] md:h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface overflow-hidden shadow-soft">
+    <section className="flex flex-col h-[calc(100dvh-10.5rem)] md:h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface/95 backdrop-blur-md overflow-hidden shadow-soft animate-fade-slide">
       <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-cbox-border bg-cbox-surface shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
             onClick={() => {
               setActiveFriend(null);
               setActiveConversationId(null);
             }}
-            aria-label="Back to chat list"
-            className="lg:hidden p-2 rounded-xl hover:bg-cbox-elevated text-cbox-muted hover:text-cbox-text"
+            className="lg:hidden p-2 rounded-xl hover:bg-cbox-elevated text-cbox-muted"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <button
             type="button"
             onClick={() => setProfileUsername(activeFriend.friend.username)}
-            className="flex items-center gap-3 min-w-0 text-left hover:opacity-90"
+            className="flex items-center gap-2.5 min-w-0 text-left hover:opacity-90"
           >
-            <Avatar
-              src={activeFriend.friend.avatarUrl}
-              name={activeFriend.friend.primaryNickname}
-              size="md"
-              online={activeFriend.online}
-            />
+            <Avatar src={activeFriend.friend.avatarUrl} name={activeFriend.friend.primaryNickname} size="md" online={activeFriend.online} />
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-cbox-text truncate">
-                {activeFriend.friend.primaryNickname}
-              </h2>
+              <h2 className="text-sm font-semibold text-cbox-text truncate">{activeFriend.friend.primaryNickname}</h2>
               <p className="text-xs text-cbox-muted truncate">
-                {friendTyping ? (
-                  <span className="text-cbox-accent font-medium">typing…</span>
-                ) : (
-                  `@${activeFriend.friend.username} · ${activeFriend.online ? 'Online' : 'Offline'}`
-                )}
+                {friendTyping ? <span className="text-cbox-accent font-medium">typing…</span> : `@${activeFriend.friend.username}`}
               </p>
             </div>
           </button>
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Disappearing Timer Control */}
-          <label className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cbox-elevated border border-cbox-border text-[11px] text-cbox-muted">
+          {/* Phase 4 WebRTC Voice & Video Call Buttons */}
+          <button
+            type="button"
+            onClick={() => onStartCall(activeFriend.friend, 'audio')}
+            title="Voice Call"
+            className="p-2 rounded-xl bg-cbox-elevated border border-cbox-border text-cbox-accent hover:bg-cbox-accent/15 transition"
+          >
+            <Phone className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onStartCall(activeFriend.friend, 'video')}
+            title="Video Call"
+            className="p-2 rounded-xl bg-cbox-elevated border border-cbox-border text-cbox-violet hover:bg-cbox-violet/15 transition"
+          >
+            <Video className="h-4 w-4" />
+          </button>
+
+          <label className="inline-flex items-center gap-1 px-2 py-1.5 rounded-xl bg-cbox-elevated border border-cbox-border text-[11px] text-cbox-muted">
             <Timer className="h-3.5 w-3.5 text-cbox-violet" />
             <select
               aria-label="Disappearing messages timer"
@@ -595,10 +544,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               onChange={(e) => handleSetDisappear(Number(e.target.value))}
               className="bg-transparent text-cbox-text font-medium focus:outline-none"
             >
-              <option value={0}>Timer: Off</option>
-              <option value={300}>5 min</option>
-              <option value={3600}>1 hour</option>
-              <option value={86400}>24 hours</option>
+              <option value={0}>Off</option>
+              <option value={300}>5m</option>
+              <option value={3600}>1h</option>
+              <option value={86400}>24h</option>
             </select>
           </label>
 
@@ -606,10 +555,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             type="button"
             onClick={handleToggleVaultForActive}
             title={activeFriend.hiddenInVault ? 'Unhide from Secret Vault' : 'Hide in Secret Vault'}
-            className={`p-2 rounded-xl border text-xs transition ${
-              activeFriend.hiddenInVault
-                ? 'border-cbox-violet bg-cbox-violet/15 text-cbox-violet'
-                : 'border-cbox-border text-cbox-muted hover:text-cbox-text'
+            className={`p-2 rounded-xl border transition ${
+              activeFriend.hiddenInVault ? 'border-cbox-violet bg-cbox-violet/15 text-cbox-violet' : 'border-cbox-border text-cbox-muted'
             }`}
           >
             <EyeOff className="h-3.5 w-3.5" />
@@ -618,10 +565,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           <button
             type="button"
             onClick={() => setBlockTarget(activeFriend.friend)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-cbox-danger hover:bg-cbox-danger/10 border border-cbox-danger/25"
+            title="Block user"
+            className="p-2 rounded-xl text-cbox-danger hover:bg-cbox-danger/10 border border-cbox-danger/25"
           >
             <Ban className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Block</span>
           </button>
         </div>
       </header>
@@ -633,7 +580,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           <EmptyState
             icon={<MessageCircle className="h-6 w-6" />}
             title={`Start chatting with ${activeFriend.friend.primaryNickname}`}
-            description="Send a message, photo, or voice note — synced in real time across desktop and Android."
+            description="Send text, photos, voice notes, or tap the phone/video icon to call."
           />
         ) : (
           messages.map((m) => (
@@ -651,24 +598,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             />
           ))
         )}
-        {friendTyping && (
-          <div className="text-xs text-cbox-muted italic px-2">
-            {activeFriend.friend.primaryNickname} is typing…
-          </div>
-        )}
+        {friendTyping && <div className="text-xs text-cbox-muted italic px-2">{activeFriend.friend.primaryNickname} is typing…</div>}
         <div ref={messagesEndRef} />
       </div>
 
       <MessageComposer
         offline={!isOnline}
         replyTo={replyTo}
-        replyAuthorName={
-          replyTo
-            ? replyTo.senderId === currentUser.id
-              ? 'yourself'
-              : activeFriend.friend.primaryNickname
-            : undefined
-        }
+        replyAuthorName={replyTo ? (replyTo.senderId === currentUser.id ? 'yourself' : activeFriend.friend.primaryNickname) : undefined}
         onCancelReply={() => setReplyTo(null)}
         onTypingChange={handleTypingChange}
         onSend={(txt) => sendMessage(txt)}
@@ -676,45 +613,39 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       />
     </section>
   ) : (
-    <div className="hidden lg:flex h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface/60 items-center justify-center p-8">
+    <div className="hidden lg:flex h-[calc(100dvh-4.5rem)] rounded-2xl border border-cbox-border bg-cbox-surface/60 backdrop-blur-md items-center justify-center p-8">
       <EmptyState
         icon={<MessageCircle className="h-6 w-6" />}
-        title="Select a friend to chat"
-        description="Pick an accepted friend from the list to open your private real-time conversation."
+        title="Select a friend to chat or call"
+        description="Pick an accepted friend from the General list for 1:1 messaging, voice notes, or video calls."
       />
     </div>
   );
 
   return (
-    <div className="lg:grid lg:grid-cols-[340px_1fr] lg:gap-5 items-start">
+    <div className="lg:grid lg:grid-cols-[340px_1fr] lg:gap-5 items-start animate-fade-slide">
       <div className={`space-y-4 ${activeFriend ? 'hidden lg:block' : 'block'}`}>
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-bold text-cbox-text">Chat</h1>
-            <p className="text-xs text-cbox-muted">
-              {vaultUnlocked ? 'Secret Vault (Unlocked)' : 'Accepted friends & requests'}
-            </p>
+            <p className="text-xs text-cbox-muted">{vaultUnlocked ? 'Secret Vault (Unlocked)' : 'Friends, groups & requests'}</p>
           </div>
-
           <button
             type="button"
             onClick={() => {
-              if (vaultUnlocked) {
-                setVaultUnlocked(false);
-              } else {
+              if (vaultUnlocked) setVaultUnlocked(false);
+              else {
                 setPinError(null);
                 setPinInput('');
                 setPinModalOpen(true);
               }
             }}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
-              vaultUnlocked
-                ? 'border-cbox-violet bg-cbox-violet text-white'
-                : 'border-cbox-violet/40 bg-cbox-violet/10 text-cbox-violet hover:bg-cbox-violet/20'
+              vaultUnlocked ? 'border-cbox-violet bg-cbox-violet text-white' : 'border-cbox-violet/40 bg-cbox-violet/10 text-cbox-violet'
             }`}
           >
             <Lock className="h-3.5 w-3.5" />
-            {vaultUnlocked ? 'Lock Vault' : `Secret Vault${vaultCount > 0 ? ` (${vaultCount})` : ''}`}
+            {vaultUnlocked ? 'Lock' : `Vault${vaultCount > 0 ? ` (${vaultCount})` : ''}`}
           </button>
         </div>
 
@@ -724,9 +655,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             type="search"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Filter friends by name or @username…"
-            aria-label="Filter friends"
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-cbox-surface border border-cbox-border text-base sm:text-sm text-cbox-text placeholder:text-cbox-muted"
+            placeholder="Filter friends…"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-cbox-surface border border-cbox-border text-base sm:text-sm text-cbox-text"
           />
         </div>
 
@@ -735,6 +665,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           onChange={setTab}
           options={[
             { id: 'general', label: vaultUnlocked ? 'Vault' : 'General', badge: filteredFriends.length },
+            { id: 'groups', label: 'Groups' },
             { id: 'sent', label: 'Sent', badge: sentRequests.length },
             { id: 'received', label: 'Received', badge: receivedRequests.length },
           ]}
@@ -746,12 +677,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           filteredFriends.length === 0 ? (
             <EmptyState
               icon={vaultUnlocked ? <Lock className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
-              title={vaultUnlocked ? 'No hidden chats in Secret Vault' : 'No friends yet'}
-              description={
-                vaultUnlocked
-                  ? 'Open any chat and tap the eye-off icon in the top bar to move it into your PIN-locked Secret Vault.'
-                  : 'Open Sent to find a friend by exact username and start a private 1:1 chat.'
-              }
+              title={vaultUnlocked ? 'No hidden chats in Vault' : 'No friends yet'}
+              description={vaultUnlocked ? 'Tap the eye-off icon inside any chat to hide it here.' : 'Open Sent to find a friend by exact username.'}
             />
           ) : (
             <div className="space-y-2.5">
@@ -770,108 +697,50 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           )
         ) : tab === 'sent' ? (
           <div className="space-y-4">
-            <form
-              onSubmit={handleLookup}
-              className="p-4 rounded-2xl border border-cbox-border bg-cbox-surface space-y-3"
-            >
-              <label className="block text-xs font-semibold uppercase tracking-wider text-cbox-muted">
-                Add friend by exact username
-              </label>
+            <form onSubmit={handleLookup} className="p-4 rounded-2xl border border-cbox-border bg-cbox-surface space-y-3">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-cbox-muted">Add friend by exact username</label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  autoCapitalize="none"
-                  value={lookupInput}
-                  onChange={(e) => setLookupInput(e.target.value)}
-                  placeholder="e.g. alex_rivera"
-                  className="flex-1 min-w-0 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-base sm:text-sm text-cbox-text"
-                />
-                <button
-                  type="submit"
-                  disabled={lookupBusy || !lookupInput.trim()}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cbox-accent text-slate-950 font-semibold text-sm hover:bg-cbox-accentHover disabled:opacity-50 shrink-0"
-                >
-                  <Search className="h-4 w-4" />
-                  {lookupBusy ? '…' : 'Find'}
+                <input type="text" autoCapitalize="none" value={lookupInput} onChange={(e) => setLookupInput(e.target.value)} placeholder="e.g. alex_rivera" className="flex-1 min-w-0 rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-base sm:text-sm text-cbox-text" />
+                <button type="submit" disabled={lookupBusy || !lookupInput.trim()} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cbox-accent text-slate-950 font-semibold text-sm disabled:opacity-50">
+                  <Search className="h-4 w-4" /> Find
                 </button>
               </div>
-
               {lookupError && <p className="text-xs text-cbox-danger">{lookupError}</p>}
-
               {lookupResult && (
-                <div className="p-3 rounded-xl bg-cbox-elevated border border-cbox-border flex flex-wrap items-center justify-between gap-3">
+                <div className="p-3 rounded-xl bg-cbox-elevated border border-cbox-border flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Avatar src={lookupResult.user.avatarUrl} name={lookupResult.user.primaryNickname} size="sm" />
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-cbox-text truncate">
-                        {lookupResult.user.primaryNickname}
-                      </p>
+                      <p className="text-sm font-semibold text-cbox-text truncate">{lookupResult.user.primaryNickname}</p>
                       <p className="text-xs text-cbox-muted">@{lookupResult.user.username}</p>
                     </div>
                   </div>
-
                   {lookupResult.relationship === 'NONE' ? (
-                    <button
-                      type="button"
-                      disabled={actionBusyId === 'send'}
-                      onClick={() => handleSendRequest(lookupResult.user.username)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cbox-accent text-slate-950 text-xs font-semibold hover:bg-cbox-accentHover disabled:opacity-50"
-                    >
-                      <UserPlus className="h-3.5 w-3.5" />
-                      Send
+                    <button type="button" disabled={actionBusyId === 'send'} onClick={() => handleSendRequest(lookupResult.user.username)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cbox-accent text-slate-950 text-xs font-semibold">
+                      <UserPlus className="h-3.5 w-3.5" /> Send
                     </button>
                   ) : (
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-cbox-surface border border-cbox-border text-cbox-muted">
-                      {lookupResult.relationship === 'FRIENDS'
-                        ? 'Already friends'
-                        : lookupResult.relationship === 'PENDING_SENT'
-                          ? 'Pending'
-                          : lookupResult.relationship === 'PENDING_RECEIVED'
-                            ? 'Check Received'
-                            : 'Blocked'}
-                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-[11px] bg-cbox-surface border border-cbox-border text-cbox-muted">{lookupResult.relationship}</span>
                   )}
                 </div>
               )}
             </form>
-
             {sentRequests.length === 0 ? (
-              <EmptyState
-                icon={<Send className="h-6 w-6" />}
-                title="No pending sent requests"
-                description="Search an exact username above to preview their profile and send a request."
-              />
+              <EmptyState icon={<Send className="h-6 w-6" />} title="No pending sent requests" description="Search an exact username above to send a friend request." />
             ) : (
               <div className="space-y-2.5">
                 {sentRequests.map((req) => (
-                  <RequestCard
-                    key={req.id}
-                    request={req}
-                    direction="sent"
-                    busy={actionBusyId === req.id}
-                    onCancel={() => handleCancelSent(req.id)}
-                  />
+                  <RequestCard key={req.id} request={req} direction="sent" busy={actionBusyId === req.id} onCancel={() => handleCancelSent(req.id)} />
                 ))}
               </div>
             )}
           </div>
         ) : receivedRequests.length === 0 ? (
-          <EmptyState
-            icon={<Inbox className="h-6 w-6" />}
-            title="No incoming requests"
-            description="When someone sends you a friend request, accept or deny it right here."
-          />
+          <EmptyState icon={<Inbox className="h-6 w-6" />} title="No incoming requests" description="Incoming friend requests appear here." />
         ) : (
           <div className="space-y-2.5">
             {receivedRequests.map((req) => (
-              <RequestCard
-                key={req.id}
-                request={req}
-                direction="received"
-                busy={actionBusyId === req.id}
-                onAccept={() => handleAccept(req.id)}
-                onDeny={() => handleDeny(req.id)}
-              />
+              <RequestCard key={req.id} request={req} direction="received" busy={actionBusyId === req.id} onAccept={() => handleAccept(req.id)} onDeny={() => handleDeny(req.id)} />
             ))}
           </div>
         )}
@@ -881,65 +750,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
       <UserProfileModal username={profileUsername} onClose={() => setProfileUsername(null)} />
 
-      {/* Secret Vault PIN Unlock Modal */}
-      <Modal
-        open={pinModalOpen}
-        onClose={() => setPinModalOpen(false)}
-        title="Unlock Secret Vault"
-        description="Enter your 4–6 digit Secret Mode PIN to view hidden chats."
-        maxWidthClass="max-w-sm"
-      >
+      <Modal open={pinModalOpen} onClose={() => setPinModalOpen(false)} title="Unlock Secret Vault" maxWidthClass="max-w-sm">
         <form onSubmit={handleUnlockVault} className="space-y-4">
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={6}
-            required
-            autoFocus
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
-            placeholder="••••"
-            className="w-full text-center text-lg tracking-[0.5em] rounded-xl bg-cbox-elevated border border-cbox-border px-4 py-3 text-cbox-text"
-          />
+          <input type="password" inputMode="numeric" maxLength={6} required autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} placeholder="••••" className="w-full text-center text-lg tracking-[0.5em] rounded-xl bg-cbox-elevated border border-cbox-border px-4 py-3 text-cbox-text" />
           {pinError && <p className="text-xs text-cbox-danger text-center">{pinError}</p>}
-          <button
-            type="submit"
-            className="w-full py-2.5 rounded-xl bg-cbox-violet text-white font-semibold text-sm"
-          >
-            Unlock Vault
-          </button>
+          <button type="submit" className="w-full py-2.5 rounded-xl bg-cbox-violet text-white font-semibold text-sm">Unlock Vault</button>
         </form>
       </Modal>
 
-      <ReportModal
-        open={Boolean(reportUser)}
-        targetLabel={reportUser ? `@${reportUser.username}` : 'user'}
-        targetUserId={reportUser?.id}
-        onClose={() => setReportUser(null)}
-        onSubmitted={() => onNotify('User report submitted for safety review.', 'success')}
-      />
+      <ReportModal open={Boolean(reportUser)} targetLabel={reportUser ? `@${reportUser.username}` : 'user'} targetUserId={reportUser?.id} onClose={() => setReportUser(null)} onSubmitted={() => onNotify('Report submitted.', 'success')} />
 
-      <Modal
-        open={Boolean(blockTarget)}
-        onClose={() => setBlockTarget(null)}
-        title={`Block @${blockTarget?.username}?`}
-        description="Blocking removes the friendship and prevents new direct messages and friend requests."
-        maxWidthClass="max-w-md"
-      >
+      <Modal open={Boolean(blockTarget)} onClose={() => setBlockTarget(null)} title={`Block @${blockTarget?.username}?`} maxWidthClass="max-w-md">
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setBlockTarget(null)}
-            className="px-4 py-2 rounded-xl text-sm border border-cbox-border text-cbox-text"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={blocking}
-            onClick={handleConfirmBlock}
-            className="px-4 py-2 rounded-xl text-sm font-semibold bg-cbox-danger text-white disabled:opacity-50"
-          >
+          <button type="button" onClick={() => setBlockTarget(null)} className="px-4 py-2 rounded-xl text-sm border border-cbox-border">Cancel</button>
+          <button type="button" disabled={blocking} onClick={handleConfirmBlock} className="px-4 py-2 rounded-xl text-sm font-semibold bg-cbox-danger text-white">
             {blocking ? 'Blocking…' : 'Block user'}
           </button>
         </div>

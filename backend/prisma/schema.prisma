@@ -57,20 +57,29 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 model User {
   id                  String          @id @default(cuid())
   usernameNormalized  String          @unique @db.VarChar(24)
   usernameDisplay     String          @db.VarChar(24)
-  phoneNormalized     String?         @unique @db.VarChar(20)
-  phoneVerifiedAt     DateTime?
+  phoneNormalized     String          @unique @db.VarChar(20)
+  phoneVerifiedAt     DateTime        @default(now())
   passwordHash        String
   secretPinHash       String?
+  totpSecret          String?
+  totpEnabled         Boolean         @default(false)
   primaryNickname     String          @db.VarChar(48)
   alternateNicknames  String[]        @default([])
   bio                 String          @default("") @db.VarChar(280)
   avatarMediaId       String?
   bannerMediaId       String?
-  theme               ThemePreference @default(SYSTEM)
+  theme               ThemePreference @default(DARK)
+  themeKey            String          @default("midnight-neon") @db.VarChar(32)
   hideOnlineStatus    Boolean         @default(false)
   disableReadReceipts Boolean         @default(false)
   role                UserRole        @default(USER)
@@ -98,6 +107,11 @@ model User {
   postComments        PostComment[]      @relation("UserPostComments")
   stories             Story[]            @relation("UserStories")
   storyViews          StoryView[]        @relation("UserStoryViews")
+  groupsCreated       Group[]            @relation("GroupsCreated")
+  groupMemberships    GroupMember[]      @relation("UserGroupMemberships")
+  groupMessages       GroupMessage[]     @relation("UserGroupMessages")
+  groupPollsCreated   GroupPoll[]        @relation("UserGroupPolls")
+  groupPollVotes      GroupPollVote[]    @relation("UserGroupPollVotes")
   reportsFiled        SafetyReport[]     @relation("ReportsFiled")
   reportsReceived     SafetyReport[]     @relation("ReportsReceived")
   pushSubscriptions   PushSubscription[] @relation("UserPushSubscriptions")
@@ -209,7 +223,7 @@ model Conversation {
   userBId               String
   hiddenByA             Boolean   @default(false)
   hiddenByB             Boolean   @default(false)
-  disappearAfterSeconds Int       @default(0) // 0 = off, 300 = 5m, 3600 = 1h, 86400 = 24h
+  disappearAfterSeconds Int       @default(0)
   lastMessageAt         DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -262,6 +276,79 @@ model MessageReaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+}
+
+model Group {
+  id          String         @id @default(cuid())
+  name        String         @db.VarChar(64)
+  description String         @default("") @db.VarChar(240)
+  inviteCode  String         @unique @db.VarChar(24)
+  creatorId   String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  creator     User           @relation("GroupsCreated", fields: [creatorId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  messages    GroupMessage[]
+  polls       GroupPoll[]
+
+  @@index([inviteCode])
+}
+
+model GroupMember {
+  id        String    @id @default(cuid())
+  groupId   String
+  userId    String
+  role      GroupRole @default(MEMBER)
+  joinedAt  DateTime  @default(now())
+
+  group     Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User      @relation("UserGroupMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model GroupMessage {
+  id        String   @id @default(cuid())
+  groupId   String
+  senderId  String
+  content   String   @db.VarChar(2000)
+  createdAt DateTime @default(now())
+
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender    User     @relation("UserGroupMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+model GroupPoll {
+  id        String          @id @default(cuid())
+  groupId   String
+  creatorId String
+  question  String          @db.VarChar(240)
+  options   String[]
+  createdAt DateTime        @default(now())
+
+  group     Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator   User            @relation("UserGroupPolls", fields: [creatorId], references: [id], onDelete: Cascade)
+  votes     GroupPollVote[]
+
+  @@index([groupId, createdAt])
+}
+
+model GroupPollVote {
+  id          String    @id @default(cuid())
+  pollId      String
+  userId      String
+  optionIndex Int
+  createdAt   DateTime  @default(now())
+
+  poll        GroupPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user        User      @relation("UserGroupPollVotes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([pollId])
 }
 
 model Post {

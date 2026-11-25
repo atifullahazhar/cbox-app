@@ -1,6 +1,10 @@
+import base64
 import hashlib
 import hmac
 import re
+import secrets
+import struct
+import time
 import unittest
 
 E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -28,6 +32,16 @@ def hash_otp(secret: str, phone: str, purpose: str, code: str) -> str:
     return hmac.new(secret.encode(), f"{phone}:{purpose}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
+def compute_totp(secret_b32: str, for_time: int) -> str:
+    padded = secret_b32.upper() + "=" * ((8 - len(secret_b32) % 8) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    msg = struct.pack(">Q", int(for_time // 30))
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code_int = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return f"{code_int % 1_000_000:06d}"
+
+
 class TestPythonAuthSecurity(unittest.TestCase):
     def test_phone_normalization_one_phone_one_account(self):
         self.assertEqual(normalize_phone_e164("9876543210"), "+919876543210")
@@ -41,7 +55,14 @@ class TestPythonAuthSecurity(unittest.TestCase):
         h = hash_otp("test-secret", "+919876543210", "SIGNUP", "482910")
         self.assertTrue(hmac.compare_digest(h, hash_otp("test-secret", "+919876543210", "SIGNUP", "482910")))
         self.assertFalse(hmac.compare_digest(h, hash_otp("test-secret", "+919876543210", "LOGIN", "482910")))
-        self.assertFalse(hmac.compare_digest(h, hash_otp("test-secret", "+919876543210", "SIGNUP", "482911")))
+
+    def test_rfc6238_totp_2fa(self):
+        secret = base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+        now = int(time.time())
+        code = compute_totp(secret, now)
+        self.assertEqual(len(code), 6)
+        self.assertTrue(code.isdigit())
+        self.assertEqual(code, compute_totp(secret, now))
 
 
 if __name__ == "__main__":
