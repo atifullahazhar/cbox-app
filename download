@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment secrets (NEVER commit real .env files)
+.env
+.env.local
+backend/.env
+frontend/.env
+
+# Build outputs
+dist/
+backend/dist/
+frontend/dist/
+
+# Local private uploads
+private_uploads/
+backend/private_uploads/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

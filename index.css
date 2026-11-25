@@ -1,0 +1,230 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default: Midnight Neon */
+:root,
+[data-theme='midnight-neon'] {
+  --cbox-bg: 11 17 32;
+  --cbox-surface: 17 26 46;
+  --cbox-elevated: 24 36 61;
+  --cbox-border: 36 52 84;
+  --cbox-text: 241 245 249;
+  --cbox-muted: 148 163 184;
+  --cbox-accent: 56 189 248;
+  --cbox-accent-hover: 14 165 233;
+  --cbox-violet: 167 139 250;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 248 113 113;
+  --cbox-warning: 251 191 36;
+}
+
+[data-theme='crisp-daylight'] {
+  --cbox-bg: 248 250 252;
+  --cbox-surface: 255 255 255;
+  --cbox-elevated: 241 245 249;
+  --cbox-border: 226 232 240;
+  --cbox-text: 15 23 42;
+  --cbox-muted: 71 85 105;
+  --cbox-accent: 2 132 199;
+  --cbox-accent-hover: 3 105 161;
+  --cbox-violet: 109 40 217;
+  --cbox-success: 22 163 74;
+  --cbox-danger: 220 38 38;
+  --cbox-warning: 217 119 6;
+}
+
+[data-theme='cherry-blossom'] {
+  --cbox-bg: 255 245 247;
+  --cbox-surface: 255 255 255;
+  --cbox-elevated: 253 232 240;
+  --cbox-border: 249 198 218;
+  --cbox-text: 56 18 35;
+  --cbox-muted: 131 66 95;
+  --cbox-accent: 219 39 119;
+  --cbox-accent-hover: 190 24 93;
+  --cbox-violet: 192 38 211;
+  --cbox-success: 22 163 74;
+  --cbox-danger: 225 29 72;
+  --cbox-warning: 217 119 6;
+}
+
+[data-theme='aurora-borealis'] {
+  --cbox-bg: 6 19 31;
+  --cbox-surface: 11 31 48;
+  --cbox-elevated: 16 44 66;
+  --cbox-border: 28 69 96;
+  --cbox-text: 236 254 255;
+  --cbox-muted: 134 185 198;
+  --cbox-accent: 45 212 191;
+  --cbox-accent-hover: 20 184 166;
+  --cbox-violet: 129 140 248;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 251 113 133;
+  --cbox-warning: 251 191 36;
+}
+
+[data-theme='sunset-ember'] {
+  --cbox-bg: 28 15 19;
+  --cbox-surface: 43 22 28;
+  --cbox-elevated: 61 31 39;
+  --cbox-border: 92 46 58;
+  --cbox-text: 255 247 237;
+  --cbox-muted: 214 165 158;
+  --cbox-accent: 251 146 60;
+  --cbox-accent-hover: 249 115 22;
+  --cbox-violet: 244 63 94;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 251 113 133;
+  --cbox-warning: 250 204 21;
+}
+
+[data-theme='ocean-bioluminescence'] {
+  --cbox-bg: 4 21 31;
+  --cbox-surface: 8 34 49;
+  --cbox-elevated: 12 49 70;
+  --cbox-border: 22 78 106;
+  --cbox-text: 240 249 255;
+  --cbox-muted: 125 182 209;
+  --cbox-accent: 6 182 212;
+  --cbox-accent-hover: 8 145 178;
+  --cbox-violet: 56 189 248;
+  --cbox-success: 52 211 153;
+  --cbox-danger: 248 113 113;
+  --cbox-warning: 251 191 36;
+}
+
+[data-theme='cyberpunk-synth'] {
+  --cbox-bg: 13 7 24;
+  --cbox-surface: 22 12 40;
+  --cbox-elevated: 35 19 62;
+  --cbox-border: 70 36 112;
+  --cbox-text: 250 245 255;
+  --cbox-muted: 178 153 214;
+  --cbox-accent: 34 211 238;
+  --cbox-accent-hover: 6 182 212;
+  --cbox-violet: 244 63 94;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 251 113 133;
+  --cbox-warning: 250 204 21;
+}
+
+[data-theme='emerald-forest'] {
+  --cbox-bg: 7 23 16;
+  --cbox-surface: 12 36 25;
+  --cbox-elevated: 18 52 36;
+  --cbox-border: 30 82 57;
+  --cbox-text: 236 253 245;
+  --cbox-muted: 134 196 167;
+  --cbox-accent: 52 211 153;
+  --cbox-accent-hover: 16 185 129;
+  --cbox-violet: 163 230 53;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 248 113 113;
+  --cbox-warning: 251 191 36;
+}
+
+[data-theme='lavender-dream'] {
+  --cbox-bg: 247 245 255;
+  --cbox-surface: 255 255 255;
+  --cbox-elevated: 237 233 254;
+  --cbox-border: 216 204 252;
+  --cbox-text: 38 22 72;
+  --cbox-muted: 109 88 153;
+  --cbox-accent: 124 58 237;
+  --cbox-accent-hover: 109 40 217;
+  --cbox-violet: 192 132 252;
+  --cbox-success: 22 163 74;
+  --cbox-danger: 220 38 38;
+  --cbox-warning: 217 119 6;
+}
+
+[data-theme='amoled-obsidian'] {
+  --cbox-bg: 0 0 0;
+  --cbox-surface: 10 12 18;
+  --cbox-elevated: 18 22 32;
+  --cbox-border: 32 40 58;
+  --cbox-text: 248 250 252;
+  --cbox-muted: 148 163 184;
+  --cbox-accent: 56 189 248;
+  --cbox-accent-hover: 14 165 233;
+  --cbox-violet: 192 132 252;
+  --cbox-success: 74 222 128;
+  --cbox-danger: 248 113 113;
+  --cbox-warning: 251 191 36;
+}
+
+@layer base {
+  html,
+  body {
+    overflow-x: hidden;
+    min-height: 100dvh;
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 280ms ease, color 220ms ease;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    touch-action: manipulation;
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--cbox-accent));
+    outline-offset: 2px;
+  }
+}
+
+.pt-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+
+/* Silky 60fps GPU-accelerated animations */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes petalFall {
+  0% { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 0; }
+  12% { opacity: 0.85; }
+  88% { opacity: 0.75; }
+  100% { transform: translate3d(70px, 110vh, 0) rotate(360deg); opacity: 0; }
+}
+
+@keyframes bubbleRise {
+  0% { transform: translate3d(0, 108vh, 0) scale(0.6); opacity: 0; }
+  15% { opacity: 0.55; }
+  85% { opacity: 0.45; }
+  100% { transform: translate3d(-24px, -12vh, 0) scale(1.15); opacity: 0; }
+}
+
+@keyframes fireflyFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.8); opacity: 0.25; }
+  50% { transform: translate3d(28px, -36px, 0) scale(1.25); opacity: 0.9; }
+}
+
+@keyframes auroraDrift {
+  0%, 100% { transform: translate3d(-6%, 0, 0) scale(1); opacity: 0.35; }
+  50% { transform: translate3d(6%, 4%, 0) scale(1.12); opacity: 0.55; }
+}
+
+@keyframes starTwinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.85); }
+  50% { opacity: 0.95; transform: scale(1.25); }
+}
+
+.animate-fade-slide {
+  animation: fadeSlideUp 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

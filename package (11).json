@@ -1,0 +1,28 @@
+{
+  "name": "cbox-app",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Cbox — Responsive Social Chat App + Installable Android PWA (GitHub + Render Ready)",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=18.20.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm --workspace=backend run dev\" \"npm --workspace=frontend run dev\"",
+    "dev:backend": "npm --workspace=backend run dev",
+    "dev:frontend": "npm --workspace=frontend run dev",
+    "build": "npm --workspace=backend run db:generate && npm --workspace=backend run build && npm --workspace=frontend run build",
+    "start": "npm --workspace=backend run start",
+    "render:build": "npm install --include=dev && npm --workspace=backend run db:generate && npm --workspace=backend run build && npm --workspace=frontend run build",
+    "render:start": "npm --workspace=backend run db:migrate && npm --workspace=backend run start",
+    "db:migrate": "npm --workspace=backend run db:migrate",
+    "db:seed": "npm --workspace=backend run db:seed",
+    "test": "npm --workspace=backend run test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
