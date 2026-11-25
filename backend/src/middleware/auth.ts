@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { UserRole } from '@prisma/client';
+import { type User, UserRole } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { hashToken, timingSafeEqualStr } from '../utils/security.js';
@@ -12,29 +12,7 @@ export interface AuthenticatedRequest extends Request {
   auth?: {
     sessionId: string;
     csrfToken: string;
-    user: {
-      id: string;
-      usernameDisplay: string;
-      usernameNormalized: string;
-      phoneNormalized: string | null;
-      secretPinHash: string | null;
-      totpSecret: string | null;
-      totpEnabled: boolean;
-      dateOfBirth: Date | null;
-      isPrivateProfile: boolean;
-      hideOnlineStatus: boolean;
-      disableReadReceipts: boolean;
-      primaryNickname: string;
-      alternateNicknames: string[];
-      bio: string;
-      avatarMediaId: string | null;
-      bannerMediaId: string | null;
-      theme: 'SYSTEM' | 'LIGHT' | 'DARK';
-      themeKey: string;
-      role: UserRole;
-      isDemo: boolean;
-      createdAt: Date;
-    };
+    user: User;
   };
 }
 
