@@ -1,25 +1,22 @@
-import { Router } from 'express';
+import crypto from 'node:crypto';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { OtpPurpose, Prisma, UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import {
-  createPhoneVerificationToken,
   generateOpaqueToken,
   hashToken,
   normalizeUsername,
   toSelfUserDTO,
   validatePasswordStrength,
   verifyDeveloperAccessCode,
-  verifyPhoneVerificationToken,
 } from '../utils/security.js';
 import {
-  pyCreateOtp,
   pyHashPassword,
   pyNormalizePhone,
   pyTotpSetup,
   pyTotpVerify,
-  pyVerifyOtp,
   pyVerifyPassword,
 } from '../services/pythonAuth.js';
 import {
@@ -36,6 +33,25 @@ import {
 import { recordAuditEvent } from '../services/audit.js';
 
 export const authRouter = Router();
+
+const DEVICE_LOCK_COOKIE = 'cbox_device_lock';
+
+function computeDeviceHash(fingerprint: string): string {
+  return crypto
+    .createHmac('sha256', env.sessionSecret)
+    .update(`chatterbox-device-v1:${fingerprint.trim()}`)
+    .digest('hex');
+}
+
+function setDeviceLockCookie(res: Response, deviceHash: string) {
+  res.cookie(DEVICE_LOCK_COOKIE, deviceHash, {
+    httpOnly: true,
+    secure: env.cookieSecure,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 1000 * 60 * 60 * 24 * 365 * 10, // 10 years
+  });
+}
 
 async function createSessionForUser(userId: string, ip: string, userAgent: string) {
   const rawToken = generateOpaqueToken(32);
@@ -56,23 +72,38 @@ async function createSessionForUser(userId: string, ip: string, userAgent: strin
   return { session, rawToken, csrfToken, expiresAt };
 }
 
-async function consumeAndVerifyOtp(phoneNormalized: string, purpose: OtpPurpose, code: string): Promise<boolean> {
-  const challenge = await prisma.otpChallenge.findFirst({
-    where: { phoneNormalized, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: 'desc' },
-  });
-  if (!challenge || challenge.attempts >= 5) return false;
-
-  const valid = await pyVerifyOtp(phoneNormalized, purpose, code, challenge.codeHash);
-  if (!valid) {
-    await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
-    return false;
+// Check if this device has already created an account (1 Device = 1 Account)
+authRouter.get('/device-status', async (req, res) => {
+  const lockCookie = typeof req.cookies?.[DEVICE_LOCK_COOKIE] === 'string' ? req.cookies[DEVICE_LOCK_COOKIE] : '';
+  if (lockCookie) {
+    res.json({
+      locked: true,
+      message: 'An account has already been created on this device. Only 1 account per device is allowed.',
+    });
+    return;
   }
-  await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } });
-  return true;
-}
 
-// Live username availability check for Step 3 of Sign-Up Wizard
+  const fp = typeof req.query.fp === 'string' ? req.query.fp.trim() : '';
+  if (fp.length >= 12) {
+    const deviceHash = computeDeviceHash(fp);
+    const existing = await prisma.user.findUnique({
+      where: { signupDeviceHash: deviceHash },
+      select: { id: true },
+    });
+    if (existing) {
+      setDeviceLockCookie(res, deviceHash);
+      res.json({
+        locked: true,
+        message: 'An account has already been created on this device. Only 1 account per device is allowed.',
+      });
+      return;
+    }
+  }
+
+  res.json({ locked: false });
+});
+
+// Live username availability check
 authRouter.get('/check-username', async (req, res) => {
   const raw = typeof req.query.username === 'string' ? req.query.username : '';
   try {
@@ -84,95 +115,10 @@ authRouter.get('/check-username', async (req, res) => {
   }
 });
 
-// Send 6-digit OTP via Python Security Engine
-authRouter.post('/otp/send', authLoginLimiter, async (req, res) => {
-  const schema = z.object({
-    phone: z.string().min(6).max(24),
-    purpose: z.nativeEnum(OtpPurpose),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Valid mobile number and OTP purpose are required.' });
-    return;
-  }
-
-  let phoneNormalized: string;
-  try {
-    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid mobile number.' });
-    return;
-  }
-
-  const existingUser = await prisma.user.findUnique({ where: { phoneNormalized } });
-
-  if (parsed.data.purpose === OtpPurpose.SIGNUP && existingUser) {
-    res.status(409).json({ error: 'This mobile number is already registered. Only 1 account per phone number is allowed.' });
-    return;
-  }
-
-  if ((parsed.data.purpose === OtpPurpose.LOGIN || parsed.data.purpose === OtpPurpose.RESET_PASSWORD) && !existingUser) {
-    res.json({ ok: true, deliveredVia: env.smsProvider, message: 'If this number is registered, an OTP has been sent.' });
-    return;
-  }
-
-  try {
-    const otpResult = await pyCreateOtp(phoneNormalized, parsed.data.purpose);
-    await prisma.otpChallenge.create({
-      data: {
-        phoneNormalized: otpResult.phoneNormalized,
-        purpose: parsed.data.purpose,
-        codeHash: otpResult.codeHash,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-      },
-    });
-
-    res.json({
-      ok: true,
-      phoneNormalized: otpResult.phoneNormalized,
-      deliveredVia: otpResult.deliveredVia,
-      demoCode: otpResult.demoCode,
-      message:
-        otpResult.deliveredVia === 'demo'
-          ? 'Demo OTP generated (configure Twilio/MSG91 in Render env for live SMS).'
-          : 'OTP sent to your mobile number.',
-    });
-  } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'OTP service unavailable.' });
-  }
-});
-
-// Step 1 Verification: Verify mobile OTP BEFORE proceeding to Nickname/Username/DOB
-authRouter.post('/otp/verify-signup', authSignupLimiter, async (req, res) => {
-  const schema = z.object({ phone: z.string().min(6).max(24), otp: z.string().length(6) });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Mobile number and 6-digit OTP are required.' });
-    return;
-  }
-
-  let phoneNormalized: string;
-  try {
-    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid mobile number.' });
-    return;
-  }
-
-  const valid = await consumeAndVerifyOtp(phoneNormalized, OtpPurpose.SIGNUP, parsed.data.otp);
-  if (!valid) {
-    res.status(401).json({ error: 'Invalid or expired OTP. Please try again.' });
-    return;
-  }
-
-  const verificationToken = createPhoneVerificationToken(phoneNormalized);
-  res.json({ ok: true, phoneNormalized, verificationToken });
-});
-
-// Complete 6-Step Sign-Up Wizard
+// Direct Normal Sign-Up (NO OTP) with strict 1-Device = 1-Account + 1-Phone = 1-Account Lock
 authRouter.post('/signup', authSignupLimiter, async (req, res) => {
   const schema = z.object({
-    verificationToken: z.string().min(20),
+    phone: z.string().min(6, 'Enter a valid mobile number.').max(24),
     primaryNickname: z.string().trim().min(1, 'Nickname is required.').max(48),
     username: z.string().min(3).max(24),
     dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid Date of Birth.'),
@@ -180,10 +126,35 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
     confirmPassword: z.string().min(8).max(128),
     isPrivateProfile: z.boolean().default(false),
     developerCode: z.string().max(32).optional(),
+    deviceFingerprint: z.string().min(12, 'Device verification required.').max(256),
   });
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message || 'Please complete all required fields.' });
+    return;
+  }
+
+  // Layer 1: Check HttpOnly persistent device-lock cookie
+  const existingCookieLock = typeof req.cookies?.[DEVICE_LOCK_COOKIE] === 'string' ? req.cookies[DEVICE_LOCK_COOKIE] : '';
+  if (existingCookieLock) {
+    res.status(409).json({
+      error: 'An account has already been created on this device. Only 1 account per device is allowed.',
+    });
+    return;
+  }
+
+  // Layer 2: Check device fingerprint hash in PostgreSQL
+  const signupDeviceHash = computeDeviceHash(parsed.data.deviceFingerprint);
+  const deviceOwner = await prisma.user.findUnique({
+    where: { signupDeviceHash },
+    select: { id: true },
+  });
+  if (deviceOwner) {
+    setDeviceLockCookie(res, signupDeviceHash);
+    res.status(409).json({
+      error: 'An account has already been created on this device. Only 1 account per device is allowed.',
+    });
     return;
   }
 
@@ -192,9 +163,11 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
     return;
   }
 
-  const phoneNormalized = verifyPhoneVerificationToken(parsed.data.verificationToken);
-  if (!phoneNormalized) {
-    res.status(401).json({ error: 'Mobile verification expired. Please verify your phone number again.' });
+  let phoneNormalized: string;
+  try {
+    phoneNormalized = await pyNormalizePhone(parsed.data.phone);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid mobile number.' });
     return;
   }
 
@@ -231,6 +204,7 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
       data: {
         phoneNormalized,
         phoneVerifiedAt: new Date(),
+        signupDeviceHash,
         usernameNormalized: normalized,
         usernameDisplay: display,
         primaryNickname: parsed.data.primaryNickname,
@@ -250,10 +224,11 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
       req.get('user-agent') || ''
     );
     setAuthCookies(res, rawToken, csrfToken, expiresAt);
+    setDeviceLockCookie(res, signupDeviceHash);
 
     await recordAuditEvent({
       actorId: user.id,
-      action: role === UserRole.DEVELOPER ? 'AUTH_SIGNUP_DEVELOPER' : 'AUTH_SIGNUP_PHONE_OTP',
+      action: role === UserRole.DEVELOPER ? 'AUTH_SIGNUP_DEVELOPER' : 'AUTH_SIGNUP_DEVICE_LOCKED',
       outcome: 'SUCCESS',
       ipAddress: req.ip,
     });
@@ -261,7 +236,9 @@ authRouter.post('/signup', authSignupLimiter, async (req, res) => {
     res.status(201).json({ user: toSelfUserDTO(user) });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      res.status(409).json({ error: 'That mobile number or username is already registered.' });
+      res.status(409).json({
+        error: 'This device, mobile number, or username is already registered. Only 1 account per device is allowed.',
+      });
       return;
     }
     throw err;
@@ -334,15 +311,17 @@ authRouter.post('/login', authLoginLimiter, async (req, res) => {
   res.json({ user: toSelfUserDTO(user) });
 });
 
+// Forgot Password (No OTP — verifies Registered Mobile Number + Username + Date of Birth)
 authRouter.post('/forgot-password/reset', authLoginLimiter, async (req, res) => {
   const schema = z.object({
     phone: z.string().min(6).max(24),
-    otp: z.string().length(6),
+    username: z.string().min(3).max(24),
+    dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     newPassword: z.string().min(8).max(128),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Mobile number, 6-digit OTP, and a new password (8+ chars) are required.' });
+    res.status(400).json({ error: 'Mobile number, username, date of birth, and new password (8+ chars) are required.' });
     return;
   }
 
@@ -355,15 +334,15 @@ authRouter.post('/forgot-password/reset', authLoginLimiter, async (req, res) => 
     return;
   }
 
-  const otpValid = await consumeAndVerifyOtp(phoneNormalized, OtpPurpose.RESET_PASSWORD, parsed.data.otp);
-  if (!otpValid) {
-    res.status(401).json({ error: 'Invalid or expired OTP.' });
-    return;
-  }
-
   const user = await prisma.user.findUnique({ where: { phoneNormalized } });
-  if (!user) {
-    res.status(401).json({ error: 'Invalid or expired OTP.' });
+  const storedDob = user?.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : '';
+  if (
+    !user ||
+    user.usernameNormalized !== parsed.data.username.trim().toLowerCase() ||
+    !storedDob ||
+    storedDob !== parsed.data.dateOfBirth
+  ) {
+    res.status(401).json({ error: 'Account details do not match. Check your mobile number, username, and date of birth.' });
     return;
   }
 
@@ -373,7 +352,7 @@ authRouter.post('/forgot-password/reset', authLoginLimiter, async (req, res) => 
     prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
   ]);
 
-  res.json({ ok: true, message: 'Password reset successfully. Please log in with your new password.' });
+  res.json({ ok: true, message: 'Password reset successfully! You can now log in with your new password.' });
 });
 
 // Apply Developer Code while already logged in (from Settings)

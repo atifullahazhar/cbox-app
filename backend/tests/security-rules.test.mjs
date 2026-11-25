@@ -78,6 +78,7 @@ test('Prisma schema and SQL migrations enforce unique phone, username, friendshi
   );
   assert.match(schema, /usernameNormalized\s+String\s+@unique/);
   assert.match(schema, /phoneNormalized\s+String\s+@unique/);
+  assert.match(schema, /signupDeviceHash\s+String\?\s+@unique/);
   assert.match(schema, /model Event\s*\{/);
   assert.match(schema, /model EventRsvp\s*\{/);
   assert.match(schema, /@@unique\(\[userAId, userBId\]\)/);
