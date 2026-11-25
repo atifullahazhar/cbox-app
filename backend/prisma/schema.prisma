@@ -142,6 +142,11 @@ model User {
   reportsReceived     SafetyReport[]     @relation("ReportsReceived")
   pushSubscriptions   PushSubscription[] @relation("UserPushSubscriptions")
   auditEvents         AuditEvent[]       @relation("UserAuditEvents")
+  sentChatRequests    ChatRequest[]      @relation("ChatReqSender")
+  receivedChatRequests ChatRequest[]     @relation("ChatReqReceiver")
+  communitiesCreated  Community[]        @relation("CommunityCreator")
+  communityMemberships CommunityMember[] @relation("UserCommunityMemberships")
+  communityMessages   CommunityMessage[] @relation("UserCommunityMessages")
 
   @@index([usernameNormalized])
   @@index([phoneNormalized])
@@ -282,6 +287,7 @@ model Conversation {
   hiddenByA             Boolean   @default(false)
   hiddenByB             Boolean   @default(false)
   disappearAfterSeconds Int       @default(0)
+  wallpaper             String    @default("default") @db.VarChar(32)
   lastMessageAt         DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -342,6 +348,7 @@ model Group {
   description String         @default("") @db.VarChar(240)
   inviteCode  String         @unique @db.VarChar(24)
   creatorId   String
+  wallpaper   String         @default("default") @db.VarChar(32)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -593,7 +600,7 @@ model CommunityMember {
   joinedAt    DateTime  @default(now())
 
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User      @relation("UserCommunityMemberships", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([communityId, userId])
 }
@@ -609,7 +616,7 @@ model CommunityMessage {
   createdAt DateTime         @default(now())
 
   channel   CommunityChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  sender    User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sender    User             @relation("UserCommunityMessages", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([channelId, createdAt])
 }
