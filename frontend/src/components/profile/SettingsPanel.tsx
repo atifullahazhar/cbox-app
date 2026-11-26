@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import type { BlockedUserItem, SafeUser, SessionInfo } from '../../types';
-import { CHATTERBOX_THEMES, THEME_CATEGORIES, type ThemeKey } from '../../themes';
+import { CHATTERBOX_THEMES, type ThemeKey } from '../../themes';
 import { apiFetch } from '../../lib/api';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ui/Avatar';
@@ -428,19 +428,26 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </form>
         )}
 
-        {/* ===================== TAB 2: THEMES (100 ANIMATED THEMES) ===================== */}
+        {/* ===================== TAB 2: THEMES (3 PERFORMANCE & EFFECT TIERS) ===================== */}
         {tab === 'themes' && (() => {
+          const TIER_TABS = [
+            { id: 'high', label: '⚡ Ultra Animated', sub: 'Rich effects & animations' },
+            { id: 'lite', label: '✨ Lite Effects', sub: 'Subtle smooth effects' },
+            { id: 'normal', label: '🔋 Normal (No FX)', sub: 'Zero animation · Best speed' },
+            { id: 'All', label: '🎨 All (100)', sub: 'Browse all themes' },
+          ];
+          const activeTier = ['high', 'lite', 'normal', 'All'].includes(themeCategory) ? themeCategory : 'high';
           const filteredThemes = CHATTERBOX_THEMES.filter((t) => {
-            const catOk = themeCategory === 'All' || t.category === themeCategory;
+            const tierOk = activeTier === 'All' || t.effectTier === activeTier;
             const q = themeSearch.trim().toLowerCase();
             const qOk = !q || t.name.toLowerCase().includes(q) || t.tagline.toLowerCase().includes(q) || t.category.toLowerCase().includes(q);
-            return catOk && qOk;
+            return tierOk && qOk;
           });
           return (
             <div className="space-y-3.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-cbox-muted">
-                  <strong className="text-cbox-text">100 Animated Themes</strong> across 10 curated collections ({filteredThemes.length} shown)
+                  <strong className="text-cbox-text">100 Themes</strong> divided into 3 effect levels ({filteredThemes.length} shown)
                 </p>
                 <div className="relative w-full sm:w-56">
                   <Search className="h-3.5 w-3.5 text-cbox-muted absolute left-3 top-1/2 -translate-y-1/2" />
@@ -454,26 +461,35 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                {['All', ...THEME_CATEGORIES].map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setThemeCategory(cat)}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap border transition ${
-                      themeCategory === cat
-                        ? 'bg-cbox-accent text-slate-950 border-cbox-accent'
-                        : 'bg-cbox-elevated/60 border-cbox-border text-cbox-muted hover:text-cbox-text'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {TIER_TABS.map((tier) => {
+                  const count = tier.id === 'All' ? CHATTERBOX_THEMES.length : CHATTERBOX_THEMES.filter((t) => t.effectTier === tier.id).length;
+                  const selected = activeTier === tier.id;
+                  return (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      onClick={() => setThemeCategory(tier.id)}
+                      className={`p-2.5 rounded-xl border text-left transition ${
+                        selected
+                          ? 'bg-cbox-accent/15 border-cbox-accent ring-1 ring-cbox-accent'
+                          : 'bg-cbox-elevated/50 border-cbox-border hover:bg-cbox-elevated'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-bold text-cbox-text truncate">{tier.label}</span>
+                        <span className="text-[10px] font-bold text-cbox-accent">{count}</span>
+                      </div>
+                      <p className="text-[10px] text-cbox-muted truncate mt-0.5">{tier.sub}</p>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-[340px] overflow-y-auto pr-1">
                 {filteredThemes.map((t) => {
                   const active = themeKey === t.key;
+                  const tierBadge = t.effectTier === 'high' ? '⚡' : t.effectTier === 'lite' ? '✨' : '🔋';
                   return (
                     <button
                       key={t.key}
@@ -487,10 +503,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-base">{t.emoji}</span>
-                        <div className="flex -space-x-1">
-                          {t.swatch.map((hex, i) => (
-                            <span key={i} style={{ backgroundColor: hex }} className="h-3.5 w-3.5 rounded-full border border-white/30" />
-                          ))}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px]" title={t.effectTier}>{tierBadge}</span>
+                          <div className="flex -space-x-1">
+                            {t.swatch.map((hex, i) => (
+                              <span key={i} style={{ backgroundColor: hex }} className="h-3.5 w-3.5 rounded-full border border-white/30" />
+                            ))}
+                          </div>
                         </div>
                       </div>
                       <p className="text-[11px] font-bold text-cbox-text truncate">{t.name}</p>

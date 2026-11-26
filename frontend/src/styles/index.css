@@ -155,11 +155,20 @@
 }
 
 @layer base {
-  html,
+  html {
+    height: auto;
+    min-height: 100%;
+    overflow-x: clip;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   body {
-    overflow-x: hidden;
+    height: auto;
     min-height: 100dvh;
-    overscroll-behavior-y: contain;
+    overflow-x: clip;
+    overflow-y: visible;
+    touch-action: pan-y;
     -webkit-tap-highlight-color: transparent;
     transition: background-color 280ms ease, color 220ms ease;
   }

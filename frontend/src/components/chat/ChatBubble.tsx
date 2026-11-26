@@ -76,13 +76,19 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         setShowPicker(false);
       }}
     >
-      <div className={`flex items-end gap-1.5 max-w-[88%] sm:max-w-[74%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div
+        className={`flex items-end gap-1.5 max-w-[88%] sm:max-w-[74%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
+        onDoubleClick={() => {
+          if (!isDeleted && onReact) onReact('❤️');
+        }}
+        onClick={() => setShowActions((v) => !v)}
+      >
         <div
           className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words ${
             isDeleted
               ? 'bg-cbox-elevated/60 text-cbox-muted italic border border-cbox-border'
               : isOwn
-                ? 'bg-cbox-accent text-slate-950 rounded-br-md font-medium'
+                ? 'bg-cbox-accent text-slate-950 rounded-br-md font-medium shadow-sm'
                 : 'bg-cbox-elevated text-cbox-text border border-cbox-border rounded-bl-md'
           } ${message.deliveryState === 'FAILED' ? 'opacity-80 ring-1 ring-cbox-danger' : ''}`}
         >

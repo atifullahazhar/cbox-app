@@ -16,7 +16,8 @@ const PARTICLES = Array.from({ length: 14 }, (_, i) => ({
 
 export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey }) => {
   const theme = getThemeDefinition(themeKey);
-  if (theme.effect === 'none') return null;
+  if (theme.effect === 'none' || theme.effectTier === 'normal') return null;
+  const activeParticles = theme.effectTier === 'lite' ? PARTICLES.slice(0, 6) : PARTICLES;
 
   return (
     <div
@@ -25,7 +26,7 @@ export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey
     >
       {/* Cherry Blossom Falling Sakura Petals */}
       {theme.effect === 'petals' &&
-        PARTICLES.map((p) => (
+        activeParticles.map((p) => (
           <span
             key={p.id}
             style={{
@@ -40,7 +41,7 @@ export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey
 
       {/* Mystic Forest Drifting Leaves */}
       {theme.effect === 'leaves' &&
-        PARTICLES.map((p) => (
+        activeParticles.map((p) => (
           <span
             key={p.id}
             style={{
@@ -55,7 +56,7 @@ export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey
 
       {/* Deep Ocean Rising Glowing Bubbles */}
       {theme.effect === 'bubbles' &&
-        PARTICLES.map((p) => (
+        activeParticles.map((p) => (
           <span
             key={p.id}
             style={{
@@ -70,7 +71,7 @@ export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey
 
       {/* Sunset Ember Floating Fireflies */}
       {theme.effect === 'fireflies' &&
-        PARTICLES.map((p) => (
+        activeParticles.map((p) => (
           <span
             key={p.id}
             style={{
@@ -86,7 +87,7 @@ export const ThemeAmbientCanvas: React.FC<ThemeAmbientCanvasProps> = ({ themeKey
 
       {/* AMOLED Starlight Twinkling Stars */}
       {theme.effect === 'stars' &&
-        PARTICLES.map((p) => (
+        activeParticles.map((p) => (
           <span
             key={p.id}
             style={{

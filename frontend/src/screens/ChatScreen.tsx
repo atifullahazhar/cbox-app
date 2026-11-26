@@ -91,6 +91,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [publicProfiles, setPublicProfiles] = useState<Array<{ user: SafeUser; relationship: string }>>([]);
   const [publicSearch, setPublicSearch] = useState('');
+  const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
+  const [inChatSearch, setInChatSearch] = useState('');
 
   function syncTotalBadge(friendList: FriendListItem[], reqList: FriendRequestItem[]) {
     const unread = friendList.reduce((acc, f) => acc + (f.unreadCount || 0), 0);
@@ -584,6 +586,21 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-cbox-bg/50">
+        {inChatSearchOpen && (
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={inChatSearch}
+              onChange={(e) => setInChatSearch(e.target.value)}
+              placeholder="Search messages in this chat..."
+              autoFocus
+              className="flex-1 rounded-xl bg-cbox-surface border border-cbox-border px-3 py-1.5 text-xs text-cbox-text"
+            />
+            {inChatSearch && (
+              <button type="button" onClick={() => setInChatSearch('')} className="text-xs text-cbox-muted px-2">Clear</button>
+            )}
+          </div>
+        )}
         {loadingMessages ? (
           <LoadingSkeleton rows={4} />
         ) : messages.length === 0 ? (

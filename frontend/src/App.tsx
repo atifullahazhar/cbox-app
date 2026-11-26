@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import type { NavSection, ProfileStats, SafeUser } from './types';
 import type { ThemeKey } from './lib/themes';
 import { apiFetch } from './lib/api';
@@ -12,10 +12,11 @@ import { ThemeAmbientCanvas } from './components/ui/ThemeAmbientCanvas';
 import { CallModal, type ActiveCallState } from './components/chat/CallModal';
 import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
-import { ChatScreen } from './screens/ChatScreen';
-import { PostsScreen } from './screens/PostsScreen';
-import { CommunitiesScreen } from './screens/CommunitiesScreen';
-import { DeveloperSpaceScreen } from './screens/DeveloperSpaceScreen';
+import { UserProfileModal } from './components/profile/UserProfileModal';
+const ChatScreen = React.lazy(() => import('./screens/ChatScreen').then((m) => ({ default: m.ChatScreen })));
+const PostsScreen = React.lazy(() => import('./screens/PostsScreen').then((m) => ({ default: m.PostsScreen })));
+const CommunitiesScreen = React.lazy(() => import('./screens/CommunitiesScreen').then((m) => ({ default: m.CommunitiesScreen })));
+const DeveloperSpaceScreen = React.lazy(() => import('./screens/DeveloperSpaceScreen').then((m) => ({ default: m.DeveloperSpaceScreen })));
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<SafeUser | null>(null);
@@ -27,6 +28,13 @@ export const App: React.FC = () => {
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
+  const [deepLinkProfile, setDeepLinkProfile] = useState<string | null>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('u');
+    } catch {
+      return null;
+    }
+  });
 
   const isOnline = useOnlineStatus();
   const { canInstall, isInstalled, triggerInstall } = usePwaInstall();
@@ -39,7 +47,7 @@ export const App: React.FC = () => {
   useThemeSync(activeThemeKey);
 
   useEffect(() => {
-    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox CB2.0` : 'Chatterbox CB2.0 — Social Chat & Communities';
+    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox CB2.1` : 'Chatterbox CB2.1 — Social Chat & Communities';
   }, [chatBadgeCount]);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -166,6 +174,19 @@ export const App: React.FC = () => {
       />
 
       {user && (
+        <UserProfileModal
+          username={deepLinkProfile}
+          onClose={() => {
+            setDeepLinkProfile(null);
+            if (window.location.search.includes('u=')) {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          }}
+          onNotify={notify}
+        />
+      )}
+
+      {user && (
         <CallModal
           call={activeCall}
           currentUserName={user.primaryNickname}
@@ -208,6 +229,7 @@ export const App: React.FC = () => {
               />
             )}
 
+            <Suspense fallback={<LoadingSkeleton variant="card" rows={3} />}>
             {activeNav === 'chat' && (
               <ChatScreen
                 currentUser={user}
@@ -231,6 +253,7 @@ export const App: React.FC = () => {
             {activeNav === 'communities' && <CommunitiesScreen currentUser={user} onNotify={notify} />}
 
             {activeNav === 'developer' && user.role === 'DEVELOPER' && <DeveloperSpaceScreen />}
+            </Suspense>
           </AppShell>
         </div>
       )}

@@ -8,7 +8,6 @@ export type NavSection = 'profile' | 'chat' | 'posts' | 'communities' | 'develop
 
 export interface SafeUser {
   id: string;
-  isPinned?: boolean;
   username: string;
   usernameNormalized: string;
   primaryNickname: string;
@@ -243,6 +242,7 @@ export interface GroupPollItem {
 
 export interface PostItem {
   id: string;
+  isPinned?: boolean;
   caption: string;
   audience: PostAudience;
   imageUrl: string;

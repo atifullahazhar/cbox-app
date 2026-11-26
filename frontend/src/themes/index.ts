@@ -1,6 +1,7 @@
 // Chatterbox CB1.1 — Dedicated 100-Theme Library (10 Categories x 10 Animated Themes)
 
 export type ThemeKey = string;
+export type ThemeEffectTier = 'high' | 'lite' | 'normal';
 
 export type ThemeEffect =
   | 'none'
@@ -37,6 +38,7 @@ export interface ThemeDefinition {
   isDark: boolean;
   swatch: [string, string, string];
   effect: ThemeEffect;
+  effectTier: ThemeEffectTier;
   palette: ThemePalette;
 }
 
@@ -80,7 +82,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "cherry-blossom",
@@ -108,7 +111,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "aurora-borealis",
@@ -136,7 +140,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "sunset-ember",
@@ -164,7 +169,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "ocean-bioluminescence",
@@ -192,7 +198,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "cyberpunk-synth",
@@ -220,7 +227,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "emerald-forest",
@@ -248,7 +256,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "lavender-dream",
@@ -276,7 +285,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "crisp-daylight",
@@ -304,7 +314,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "amoled-obsidian",
@@ -332,7 +343,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "rose-quartz",
@@ -360,7 +372,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "sakura-night",
@@ -388,7 +401,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "lotus-pond",
@@ -416,7 +430,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "sunflower-field",
@@ -444,7 +459,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "tulip-garden",
@@ -472,7 +488,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "matcha-bloom",
@@ -500,7 +517,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "hibiscus-glow",
@@ -528,7 +546,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "orchid-velvet",
@@ -556,7 +575,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "marigold-fest",
@@ -584,7 +604,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "wisteria-rain",
@@ -612,7 +633,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "tokyo-drift",
@@ -640,7 +662,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "synthwave-84",
@@ -668,7 +691,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "plasma-volt",
@@ -696,7 +720,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "laser-lime",
@@ -724,7 +749,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "arcade-magenta",
@@ -752,7 +778,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "tron-grid",
@@ -780,7 +807,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "hologram-pulse",
@@ -808,7 +836,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "acid-mint",
@@ -836,7 +865,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "hyper-violet",
@@ -864,7 +894,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "matrix-code",
@@ -892,7 +923,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "milky-way",
@@ -920,7 +952,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "nebula-dream",
@@ -948,7 +981,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "solar-flare",
@@ -976,7 +1010,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "lunar-silver",
@@ -1004,7 +1039,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "mars-horizon",
@@ -1032,7 +1068,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "deep-blackhole",
@@ -1060,7 +1097,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "supernova-gold",
@@ -1088,7 +1126,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "saturn-rings",
@@ -1116,7 +1155,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "comet-trail",
@@ -1144,7 +1184,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "event-horizon",
@@ -1172,7 +1213,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "coral-reef",
@@ -1200,7 +1242,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "glacier-ice",
@@ -1228,7 +1271,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "tropical-lagoon",
@@ -1256,7 +1300,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "abyssal-blue",
@@ -1284,7 +1329,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "seafoam-breeze",
@@ -1312,7 +1358,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "high"
   },
   {
     "key": "arctic-frost",
@@ -1340,7 +1387,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "sapphire-tide",
@@ -1368,7 +1416,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "pacific-dusk",
@@ -1396,7 +1445,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "emerald-cove",
@@ -1424,7 +1474,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "pearl-mist",
@@ -1452,7 +1503,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "golden-hour",
@@ -1480,7 +1532,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "desert-mirage",
@@ -1508,7 +1561,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "amber-honey",
@@ -1536,7 +1590,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "terracotta-clay",
@@ -1564,7 +1619,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "peach-sorbet",
@@ -1592,7 +1648,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "autumn-maple",
@@ -1620,7 +1677,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "volcano-ash",
@@ -1648,7 +1706,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "cinnamon-spice",
@@ -1676,7 +1735,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "mango-tango",
@@ -1704,7 +1764,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "saffron-royal",
@@ -1732,7 +1793,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "bamboo-zen",
@@ -1760,7 +1822,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "pine-shadow",
@@ -1788,7 +1851,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "moss-garden",
@@ -1816,7 +1880,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "rainforest-mist",
@@ -1844,7 +1909,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "jade-valley",
@@ -1872,7 +1938,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "sage-calm",
@@ -1900,7 +1967,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "fern-dew",
@@ -1928,7 +1996,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "cedar-cabin",
@@ -1956,7 +2025,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "meadow-spring",
@@ -1984,7 +2054,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "olive-grove",
@@ -2012,7 +2083,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "lite"
   },
   {
     "key": "cotton-candy",
@@ -2026,7 +2098,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#ec4899",
       "#3b82f6"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "253 242 248",
       "surface": "255 255 255",
@@ -2040,7 +2112,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "sky-cloud",
@@ -2054,7 +2127,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#0284c7",
       "#818cf8"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "240 249 255",
       "surface": "255 255 255",
@@ -2068,7 +2141,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "mint-cream",
@@ -2082,7 +2156,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#0d9488",
       "#16a34a"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "240 253 244",
       "surface": "255 255 255",
@@ -2096,7 +2170,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "buttercup-soft",
@@ -2110,7 +2185,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#b45309",
       "#d97706"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "254 252 232",
       "surface": "255 255 255",
@@ -2124,7 +2199,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "lilac-haze",
@@ -2138,7 +2214,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#7c3aed",
       "#db2777"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "245 243 255",
       "surface": "255 255 255",
@@ -2152,7 +2228,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "baby-blue",
@@ -2166,7 +2243,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#2563eb",
       "#0284c7"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "239 246 255",
       "surface": "255 255 255",
@@ -2180,7 +2257,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "blush-pearl",
@@ -2194,7 +2272,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#be185d",
       "#e11d48"
     ],
-    "effect": "petals",
+    "effect": "none",
     "palette": {
       "bg": "255 241 245",
       "surface": "255 255 255",
@@ -2208,7 +2286,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "vanilla-latte",
@@ -2236,7 +2315,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "pistachio-whip",
@@ -2250,7 +2330,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#3f6212",
       "#15803d"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "244 251 232",
       "surface": "255 255 255",
@@ -2264,7 +2344,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "periwinkle",
@@ -2278,7 +2359,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#4f46e5",
       "#7c3aed"
     ],
-    "effect": "orbs",
+    "effect": "none",
     "palette": {
       "bg": "238 242 255",
       "surface": "255 255 255",
@@ -2292,7 +2373,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "obsidian-gold",
@@ -2306,7 +2388,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#eab308",
       "#f59e0b"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "8 8 10",
       "surface": "20 20 22",
@@ -2320,7 +2402,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "royal-velvet",
@@ -2334,7 +2417,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#a855f7",
       "#fbbf24"
     ],
-    "effect": "aurora",
+    "effect": "none",
     "palette": {
       "bg": "20 9 31",
       "surface": "32 21 42",
@@ -2348,7 +2431,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "champagne-silk",
@@ -2376,7 +2460,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "ruby-crown",
@@ -2390,7 +2475,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#e11d48",
       "#fbbf24"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "28 7 12",
       "surface": "39 19 24",
@@ -2404,7 +2489,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "emerald-luxe",
@@ -2418,7 +2504,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#10b981",
       "#eab308"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "5 23 18",
       "surface": "18 35 30",
@@ -2432,7 +2518,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "onyx-silver",
@@ -2446,7 +2533,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#e2e8f0",
       "#94a3b8"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "11 12 16",
       "surface": "23 24 28",
@@ -2460,7 +2547,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "bronze-empire",
@@ -2474,7 +2562,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#d97706",
       "#b45309"
     ],
-    "effect": "fireflies",
+    "effect": "none",
     "palette": {
       "bg": "22 16 11",
       "surface": "34 28 23",
@@ -2488,7 +2576,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "sapphire-king",
@@ -2502,7 +2591,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#3b82f6",
       "#fbbf24"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "7 14 33",
       "surface": "19 26 44",
@@ -2516,7 +2605,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "rose-gold",
@@ -2530,7 +2620,7 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "#f472b6",
       "#fbbf24"
     ],
-    "effect": "stars",
+    "effect": "none",
     "palette": {
       "bg": "25 16 20",
       "surface": "36 28 32",
@@ -2544,7 +2634,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "ivory-marble",
@@ -2572,7 +2663,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "pure-pitch",
@@ -2600,7 +2692,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "graphite-pro",
@@ -2628,7 +2721,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "slate-mono",
@@ -2656,7 +2750,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "paper-ink",
@@ -2684,7 +2779,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "nordic-frost",
@@ -2712,7 +2808,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "carbon-fiber",
@@ -2740,7 +2837,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "charcoal-soft",
@@ -2768,7 +2866,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "espresso-dark",
@@ -2796,7 +2895,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "chalk-minimal",
@@ -2824,7 +2924,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "22 163 74",
       "danger": "225 29 72",
       "warning": "217 119 6"
-    }
+    },
+    "effectTier": "normal"
   },
   {
     "key": "titanium",
@@ -2852,7 +2953,8 @@ export const CHATTERBOX_THEMES: ThemeDefinition[] = [
       "success": "74 222 128",
       "danger": "248 113 113",
       "warning": "251 191 36"
-    }
+    },
+    "effectTier": "normal"
   }
 ];
 
