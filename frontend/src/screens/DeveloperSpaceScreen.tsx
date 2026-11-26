@@ -3,6 +3,7 @@ import {
   Activity,
   BadgeCheck,
   Ban,
+  Bug,
   CheckCircle2,
   Database,
   Flag,
@@ -95,12 +96,26 @@ interface DevControlStatus {
   }>;
 }
 
-type DevTab = 'overview' | 'safety' | 'platform' | 'users' | 'inbox';
+interface BugReportItem {
+  id: string;
+  title: string;
+  section: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  description: string;
+  deviceInfo: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'FIXED' | 'DISMISSED';
+  devNote: string;
+  createdAt: string;
+  reporter: { id: string; username: string; primaryNickname: string };
+}
+
+type DevTab = 'overview' | 'bugs' | 'safety' | 'platform' | 'users' | 'inbox';
 
 export const DeveloperSpaceScreen: React.FC = () => {
   const [tab, setTab] = useState<DevTab>('overview');
   const [data, setData] = useState<DevControlStatus | null>(null);
   const [reports, setReports] = useState<SafetyReportItem[]>([]);
+  const [bugs, setBugs] = useState<BugReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -272,6 +287,18 @@ export const DeveloperSpaceScreen: React.FC = () => {
     setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
   }
 
+  async function updateBugStatus(id: string, status: BugReportItem['status']) {
+    await apiFetch(`/api/developer/bugs/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    setBugs((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
+    flash(`Bug marked as ${status}.`);
+  }
+
+  async function deleteBug(id: string) {
+    await apiFetch(`/api/developer/bugs/${id}`, { method: 'DELETE' });
+    setBugs((prev) => prev.filter((b) => b.id !== id));
+    flash('Bug report deleted.');
+  }
+
   async function dismissFeedback(id: string) {
     const res = await apiFetch<{ feedbackInbox: DevControlStatus['feedbackInbox'] }>(`/api/developer/feedback/${id}`, {
       method: 'DELETE',
@@ -299,6 +326,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
 
   const navTabs: Array<{ id: DevTab; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: 'Overview & Ops', icon: <Activity className="h-3.5 w-3.5" /> },
+    { id: 'bugs', label: `Bug Reports (${bugs.filter((b) => b.status === 'OPEN' || b.status === 'IN_PROGRESS').length})`, icon: <Bug className="h-3.5 w-3.5" /> },
     { id: 'safety', label: 'Safety & Moderation', icon: <ShieldAlert className="h-3.5 w-3.5" /> },
     { id: 'platform', label: 'Platform Controls', icon: <Sliders className="h-3.5 w-3.5" /> },
     { id: 'users', label: `Users (${data.users.length})`, icon: <Users className="h-3.5 w-3.5" /> },
@@ -315,7 +343,7 @@ export const DeveloperSpaceScreen: React.FC = () => {
               <Terminal className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-cbox-text">Chatterbox CB2.1 · Developer Control</h1>
+              <h1 className="text-xl font-bold text-cbox-text">Chatterbox CB2.2 · Developer Control</h1>
               <p className="text-xs text-cbox-muted">
                 Admin command center for @{data.account.username} · Private 1:1 DMs remain strictly isolated
               </p>
@@ -402,6 +430,91 @@ export const DeveloperSpaceScreen: React.FC = () => {
       )}
 
       {/* ===================== TAB 2: SAFETY & MODERATION ===================== */}
+            {/* ===================== BUG REPORTS TRACKER (CB2.2) ===================== */}
+      {tab === 'bugs' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-cbox-text flex items-center gap-2">
+                <Bug className="h-4 w-4 text-amber-400" />
+                User Bug Reports ({bugs.length})
+              </h2>
+              <p className="text-xs text-cbox-muted">Bugs submitted by users from their dashboard appear here for you to track & fix.</p>
+            </div>
+            <span className="text-xs font-bold text-amber-400">
+              {bugs.filter((b) => b.status === 'OPEN' || b.status === 'IN_PROGRESS').length} active
+            </span>
+          </div>
+
+          {bugs.length === 0 ? (
+            <EmptyState
+              icon={<Bug className="h-6 w-6" />}
+              title="No bug reports yet"
+              description="When users report bugs from their dashboard, they will appear right here."
+            />
+          ) : (
+            <div className="space-y-3">
+              {bugs.map((bug) => {
+                const sevCls =
+                  bug.severity === 'CRITICAL'
+                    ? 'bg-rose-500/20 text-rose-400 border-rose-400/40'
+                    : bug.severity === 'HIGH'
+                      ? 'bg-orange-500/20 text-orange-400 border-orange-400/40'
+                      : bug.severity === 'MEDIUM'
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-400/40'
+                        : 'bg-sky-500/20 text-sky-400 border-sky-400/40';
+                const statusCls =
+                  bug.status === 'FIXED'
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : bug.status === 'IN_PROGRESS'
+                      ? 'bg-violet-500/20 text-violet-400'
+                      : bug.status === 'DISMISSED'
+                        ? 'bg-cbox-elevated text-cbox-muted'
+                        : 'bg-amber-500/20 text-amber-400';
+                return (
+                  <div key={bug.id} className="rounded-2xl border border-cbox-border bg-cbox-surface p-4 space-y-2.5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${sevCls}`}>{bug.severity}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cbox-elevated text-cbox-text">{bug.section}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusCls}`}>{bug.status}</span>
+                        </div>
+                        <h3 className="text-sm font-bold text-cbox-text">{bug.title}</h3>
+                        <p className="text-[11px] text-cbox-muted">
+                          Reported by <strong className="text-cbox-text">@{bug.reporter.username}</strong> · {new Date(bug.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => deleteBug(bug.id)} title="Delete bug" className="p-1.5 rounded-lg text-cbox-muted hover:text-cbox-danger hover:bg-cbox-danger/10">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-cbox-text/90 whitespace-pre-wrap bg-cbox-elevated/40 p-3 rounded-xl border border-cbox-border">{bug.description}</p>
+                    {bug.deviceInfo && <p className="text-[10px] text-cbox-muted truncate">Device: {bug.deviceInfo}</p>}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(['OPEN', 'IN_PROGRESS', 'FIXED', 'DISMISSED'] as const).map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => updateBugStatus(bug.id, st)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
+                            bug.status === st
+                              ? 'bg-cbox-accent text-slate-950 border-cbox-accent'
+                              : 'border-cbox-border text-cbox-muted hover:text-cbox-text'
+                          }`}
+                        >
+                          {st.replace('_', ' ')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'safety' && (
         <div className="space-y-5">
           <div className="grid lg:grid-cols-2 gap-4">

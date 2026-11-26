@@ -40,6 +40,7 @@ enum MediaPurpose {
   STORY_IMAGE
   CHAT_VIDEO
   PROFILE_AUDIO
+  CUSTOM_STICKER
 }
 
 enum MessageDeliveryState {
@@ -71,6 +72,13 @@ enum ChatRequestStatus {
   PENDING
   ACCEPTED
   DENIED
+}
+
+enum BugStatus {
+  OPEN
+  IN_PROGRESS
+  FIXED
+  DISMISSED
 }
 
 enum CommunityChannelType {
@@ -167,6 +175,8 @@ model User {
   closeFriendOf       CloseFriend[]      @relation("UserCloseFriendOf")
   moderationPrefsOwned UserModerationPref[] @relation("UserModPrefsOwned")
   moderationPrefsTarget UserModerationPref[] @relation("UserModPrefsTarget")
+  customStickers      CustomSticker[]    @relation("UserCustomStickers")
+  bugReports          BugReport[]        @relation("UserBugReports")
 
   @@index([usernameNormalized])
   @@index([phoneNormalized])
@@ -696,4 +706,36 @@ model UserModerationPref {
 
   @@unique([ownerId, targetId])
   @@index([ownerId])
+}
+
+
+model CustomSticker {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String   @db.VarChar(32)
+  mediaId   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation("UserCustomStickers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model BugReport {
+  id          String    @id @default(cuid())
+  reporterId  String
+  title       String    @db.VarChar(100)
+  section     String    @default("General") @db.VarChar(32)
+  severity    String    @default("MEDIUM") @db.VarChar(16)
+  description String    @db.VarChar(1000)
+  deviceInfo  String    @default("") @db.VarChar(240)
+  status      BugStatus @default(OPEN)
+  devNote     String    @default("") @db.VarChar(400)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  reporter    User      @relation("UserBugReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([reporterId])
 }

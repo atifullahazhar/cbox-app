@@ -33,6 +33,8 @@ export const Avatar: React.FC<AvatarProps> = ({
     <div className={`relative inline-flex shrink-0 ${className}`}>
       {src ? (
         <img
+          loading="lazy"
+          decoding="async"
           src={src}
           alt={`${name}'s avatar`}
           className={`${SIZE_CLASSES[size]} rounded-full object-cover border border-cbox-border bg-cbox-elevated`}

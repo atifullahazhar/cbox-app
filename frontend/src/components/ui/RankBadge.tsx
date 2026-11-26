@@ -9,11 +9,16 @@ import {
   Pause,
   Play,
   Shield,
+  Bug,
+  Image as ImageIcon,
+  Plus,
   Sparkles,
   Star,
+  Trash2,
 } from 'lucide-react';
 import type { GroupRank, ProfileBadgeItem, SafeUser, UserRole } from '../../types';
 import { Modal } from './Modal';
+import { apiFetch, apiUploadWithProgress } from '../../lib/api';
 
 // ===================== COOL RANK & EXCLUSIVE DEVELOPER BADGES =====================
 export const RankBadges: React.FC<{
@@ -103,59 +108,454 @@ export function isStickerMessage(content: string): { emoji: string; label: strin
   return { emoji: m[1], label: m[2] };
 }
 
+export function isCustomStickerMessage(content: string): { url: string; label: string } | null {
+  const m = content.match(/^\[CUSTOM_STICKER:([^|\]]+)\|([^\]]*)\]$/);
+  if (!m) return null;
+  return { url: m[1], label: m[2] || 'Sticker' };
+}
+
+interface CustomStickerItem {
+  id: string;
+  label: string;
+  imageUrl: string;
+}
+
+const STICKER_BGS = [
+  ['#0f172a', '#6366f1'],
+  ['#db2777', '#f59e0b'],
+  ['#059669', '#06b6d4'],
+  ['#7c3aed', '#ec4899'],
+  ['#111827', '#000000'],
+];
+
+const STICKER_TEXT_COLORS = ['#ffffff', '#fde047', '#38bdf8', '#f472b6', '#4ade80'];
+
 export const EmojiStickerPicker: React.FC<{
   onPickEmoji: (emoji: string) => void;
   onPickSticker: (stickerText: string) => void;
 }> = ({ onPickEmoji, onPickSticker }) => {
-  const [tab, setTab] = useState<'emoji' | 'sticker'>('emoji');
+  const [tab, setTab] = useState<'emoji' | 'sticker' | 'custom'>('emoji');
+  const [myStickers, setMyStickers] = useState<CustomStickerItem[]>([]);
+  const [loadedCustom, setLoadedCustom] = useState(false);
+  const [makerOpen, setMakerOpen] = useState(false);
+  const [makerText, setMakerText] = useState('OP BRO!');
+  const [makerEmoji, setMakerEmoji] = useState('🔥');
+  const [makerBgIdx, setMakerBgIdx] = useState(0);
+  const [makerColor, setMakerColor] = useState('#ffffff');
+  const [makerImgUrl, setMakerImgUrl] = useState<string | null>(null);
+  const [savingSticker, setSavingSticker] = useState(false);
+  const [makerErr, setMakerErr] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imgElRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (tab === 'custom' && !loadedCustom) {
+      apiFetch<{ stickers: CustomStickerItem[] }>('/api/profile/me/stickers')
+        .then((r) => setMyStickers(r.stickers || []))
+        .catch(() => {})
+        .finally(() => setLoadedCustom(true));
+    }
+  }, [tab, loadedCustom]);
+
+  function drawStickerCanvas() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const S = 256;
+    ctx.clearRect(0, 0, S, S);
+
+    // Rounded sticker base
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(10, 10, S - 20, S - 20, 44);
+    ctx.clip();
+
+    if (imgElRef.current) {
+      const img = imgElRef.current;
+      const scale = Math.max((S - 20) / img.width, (S - 20) / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+    } else {
+      const [c1, c2] = STICKER_BGS[makerBgIdx] || STICKER_BGS[0];
+      const grad = ctx.createLinearGradient(0, 0, S, S);
+      grad.addColorStop(0, c1);
+      grad.addColorStop(1, c2);
+      ctx.fillStyle = grad;
+      ctx.fillRect(10, 10, S - 20, S - 20);
+
+      if (makerEmoji) {
+        ctx.font = '88px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(makerEmoji, S / 2, makerText.trim() ? S / 2 - 22 : S / 2);
+      }
+    }
+
+    if (makerText.trim()) {
+      ctx.font = '900 28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.fillStyle = makerColor;
+      const label = makerText.trim().slice(0, 22);
+      ctx.strokeText(label, S / 2, S - 24);
+      ctx.fillText(label, S / 2, S - 24);
+    }
+    ctx.restore();
+
+    // Crisp white sticker border
+    ctx.beginPath();
+    ctx.roundRect(10, 10, S - 20, S - 20, 44);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.stroke();
+  }
+
+  useEffect(() => {
+    if (makerOpen) drawStickerCanvas();
+  }, [makerOpen, makerText, makerEmoji, makerBgIdx, makerColor, makerImgUrl]);
+
+  function handlePickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      imgElRef.current = img;
+      setMakerImgUrl(url);
+      drawStickerCanvas();
+    };
+    img.src = url;
+  }
+
+  async function handleSaveCustomSticker() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setSavingSticker(true);
+    setMakerErr(null);
+    try {
+      const blob: Blob = await new Promise((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Failed to render sticker'))), 'image/png')
+      );
+      const fd = new FormData();
+      fd.append('image', blob, 'custom-sticker.png');
+      fd.append('label', makerText.trim() || makerEmoji || 'Custom Sticker');
+      const res = await apiUploadWithProgress<{ sticker: CustomStickerItem }>('/api/profile/me/stickers', fd);
+      setMyStickers((prev) => [res.sticker, ...prev]);
+      setMakerOpen(false);
+      imgElRef.current = null;
+      setMakerImgUrl(null);
+      onPickSticker(`[CUSTOM_STICKER:${res.sticker.imageUrl}|${res.sticker.label}]`);
+    } catch (err) {
+      setMakerErr(err instanceof Error ? err.message : 'Could not save sticker.');
+    } finally {
+      setSavingSticker(false);
+    }
+  }
+
+  async function handleDeleteSticker(id: string) {
+    try {
+      await apiFetch(`/api/profile/me/stickers/${id}`, { method: 'DELETE' });
+      setMyStickers((prev) => prev.filter((s) => s.id !== id));
+    } catch {}
+  }
+
   return (
-    <div className="w-72 rounded-2xl border border-cbox-border bg-cbox-surface shadow-2xl p-2.5 space-y-2">
-      <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-cbox-elevated text-[11px] font-bold">
-        <button
-          type="button"
-          onClick={() => setTab('emoji')}
-          className={`py-1 rounded-lg ${tab === 'emoji' ? 'bg-cbox-accent text-slate-950' : 'text-cbox-muted'}`}
-        >
-          Emojis
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('sticker')}
-          className={`py-1 rounded-lg ${tab === 'sticker' ? 'bg-cbox-accent text-slate-950' : 'text-cbox-muted'}`}
-        >
-          Stickers
-        </button>
+    <>
+      <div className="w-72 rounded-2xl border border-cbox-border bg-cbox-surface shadow-2xl p-2.5 space-y-2">
+        <div className="grid grid-cols-3 gap-1 p-0.5 rounded-xl bg-cbox-elevated text-[10px] font-bold">
+          <button
+            type="button"
+            onClick={() => setTab('emoji')}
+            className={`py-1 rounded-lg ${tab === 'emoji' ? 'bg-cbox-accent text-slate-950' : 'text-cbox-muted'}`}
+          >
+            Emojis
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('sticker')}
+            className={`py-1 rounded-lg ${tab === 'sticker' ? 'bg-cbox-accent text-slate-950' : 'text-cbox-muted'}`}
+          >
+            Stickers
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('custom')}
+            className={`py-1 rounded-lg ${tab === 'custom' ? 'bg-cbox-accent text-slate-950' : 'text-cbox-muted'}`}
+          >
+            My Stickers
+          </button>
+        </div>
+
+        {tab === 'emoji' ? (
+          <div className="grid grid-cols-6 gap-1 max-h-40 overflow-y-auto">
+            {QUICK_EMOJIS.map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => onPickEmoji(em)}
+                className="h-9 rounded-lg hover:bg-cbox-elevated text-lg flex items-center justify-center transition"
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+        ) : tab === 'sticker' ? (
+          <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto">
+            {CHAT_STICKERS.map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => onPickSticker(st.text)}
+                className="p-2 rounded-xl border border-cbox-border bg-cbox-elevated/60 hover:border-cbox-accent text-left flex items-center gap-2 transition"
+              >
+                <span className="text-xl">{st.badge}</span>
+                <span className="text-[11px] font-bold text-cbox-text truncate">{st.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setMakerOpen(true)}
+              className="w-full py-1.5 rounded-xl bg-cbox-accent text-slate-950 text-[11px] font-bold flex items-center justify-center gap-1"
+            >
+              <Plus className="h-3.5 w-3.5" /> Create Custom Sticker
+            </button>
+            {myStickers.length === 0 ? (
+              <p className="text-[11px] text-cbox-muted text-center py-4">No custom stickers yet. Create one from any photo or emoji!</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto">
+                {myStickers.map((st) => (
+                  <div key={st.id} className="relative group rounded-xl border border-cbox-border bg-cbox-elevated/50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => onPickSticker(`[CUSTOM_STICKER:${st.imageUrl}|${st.label}]`)}
+                      className="w-full aspect-square flex items-center justify-center overflow-hidden rounded-lg"
+                    >
+                      <img src={st.imageUrl} alt={st.label} loading="lazy" decoding="async" className="h-full w-full object-contain" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSticker(st.id)}
+                      title="Delete sticker"
+                      className="absolute top-1 right-1 p-0.5 rounded-md bg-black/70 text-rose-400 opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {tab === 'emoji' ? (
-        <div className="grid grid-cols-6 gap-1 max-h-40 overflow-y-auto">
-          {QUICK_EMOJIS.map((em) => (
-            <button
-              key={em}
-              type="button"
-              onClick={() => onPickEmoji(em)}
-              className="h-9 rounded-lg hover:bg-cbox-elevated text-lg flex items-center justify-center transition"
-            >
-              {em}
-            </button>
-          ))}
+      <Modal open={makerOpen} onClose={() => setMakerOpen(false)} title="Custom Sticker Maker (CB2.2)" maxWidthClass="max-w-md">
+        <div className="space-y-4">
+          <div className="flex justify-center">
+            <canvas ref={canvasRef} width={256} height={256} className="h-44 w-44 rounded-3xl shadow-xl border border-cbox-border bg-cbox-elevated" />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-cbox-text block">Sticker Text</label>
+            <input
+              type="text"
+              maxLength={22}
+              value={makerText}
+              onChange={(e) => setMakerText(e.target.value)}
+              placeholder="Write bold sticker text..."
+              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-xs text-cbox-text"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cbox-accent/40 bg-cbox-accent/10 text-cbox-accent text-xs font-bold cursor-pointer">
+              <ImageIcon className="h-3.5 w-3.5" />
+              {makerImgUrl ? 'Change Photo' : 'Pick Photo'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePickPhoto} className="hidden" />
+            </label>
+            {makerImgUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  imgElRef.current = null;
+                  setMakerImgUrl(null);
+                }}
+                className="text-xs text-cbox-muted hover:text-cbox-danger"
+              >
+                Use Emoji BG
+              </button>
+            )}
+            <div className="flex items-center gap-1.5">
+              {STICKER_TEXT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setMakerColor(c)}
+                  style={{ backgroundColor: c }}
+                  className={`h-5 w-5 rounded-full border-2 ${makerColor === c ? 'border-cbox-accent scale-110' : 'border-black/30'}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {!makerImgUrl && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {['🔥', '😂', '👑', '🎮', '🌸', '⚡', '🫶', '💀', '🚀', '😎'].map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => setMakerEmoji(em)}
+                    className={`h-8 w-8 rounded-lg text-base border shrink-0 ${makerEmoji === em ? 'border-cbox-accent bg-cbox-accent/20' : 'border-cbox-border bg-cbox-elevated'}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                {STICKER_BGS.map(([c1, c2], idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setMakerBgIdx(idx)}
+                    style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+                    className={`h-7 flex-1 rounded-xl border-2 ${makerBgIdx === idx ? 'border-white' : 'border-transparent'}`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {makerErr && <p className="text-xs text-cbox-danger">{makerErr}</p>}
+
+          <button
+            type="button"
+            disabled={savingSticker}
+            onClick={handleSaveCustomSticker}
+            className="w-full py-2.5 rounded-xl bg-cbox-accent text-slate-950 text-xs font-bold disabled:opacity-50"
+          >
+            {savingSticker ? 'Saving Sticker...' : 'Save & Send Sticker'}
+          </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto">
-          {CHAT_STICKERS.map((st) => (
-            <button
-              key={st.id}
-              type="button"
-              onClick={() => onPickSticker(st.text)}
-              className="p-2 rounded-xl border border-cbox-border bg-cbox-elevated/60 hover:border-cbox-accent text-left flex items-center gap-2 transition"
-            >
-              <span className="text-xl">{st.badge}</span>
-              <span className="text-[11px] font-bold text-cbox-text truncate">{st.label}</span>
-            </button>
-          ))}
+      </Modal>
+    </>
+  );
+};
+
+export const ReportBugModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  onNotify: (msg: string, tone?: 'success' | 'error' | 'info') => void;
+}> = ({ open, onClose, onNotify }) => {
+  const [title, setTitle] = useState('');
+  const [section, setSection] = useState('Profile');
+  const [severity, setSeverity] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('MEDIUM');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (title.trim().length < 3 || description.trim().length < 5) {
+      onNotify('Please write a short bug title and description.', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const deviceInfo = `${window.innerWidth}x${window.innerHeight} · ${navigator.userAgent.slice(0, 180)}`;
+      await apiFetch('/api/developer/bugs', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: title.trim(),
+          section,
+          severity,
+          description: description.trim(),
+          deviceInfo,
+        }),
+      });
+      setTitle('');
+      setDescription('');
+      onClose();
+      onNotify('Bug report sent to Developer Control! Thank you.', 'success');
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to submit bug report.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Report a Bug" description="Help improve Chatterbox by reporting issues directly to the Developer." maxWidthClass="max-w-md">
+      <form onSubmit={handleSubmit} className="space-y-3.5">
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-cbox-text">Bug Title</label>
+          <input
+            type="text"
+            required
+            maxLength={100}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Chat message not scrolling on mobile"
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-xs text-cbox-text"
+          />
         </div>
-      )}
-    </div>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-cbox-text">Section</label>
+            <select
+              value={section}
+              onChange={(e) => setSection(e.target.value)}
+              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-xs text-cbox-text"
+            >
+              {['Profile', 'Chat', 'Groups', 'Communities', 'Posts', 'Themes', 'Other'].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-cbox-text">Severity</label>
+            <select
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as any)}
+              className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-xs text-cbox-text"
+            >
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-cbox-text">What happened?</label>
+          <textarea
+            required
+            rows={4}
+            maxLength={1000}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe what went wrong and how to reproduce it..."
+            className="w-full rounded-xl bg-cbox-elevated border border-cbox-border px-3 py-2 text-xs text-cbox-text resize-none"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full py-2.5 rounded-xl bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50"
+        >
+          <Bug className="h-4 w-4" />
+          {busy ? 'Submitting...' : 'Submit Bug Report'}
+        </button>
+      </form>
+    </Modal>
   );
 };
 

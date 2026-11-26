@@ -13,6 +13,7 @@ import { CallModal, type ActiveCallState } from './components/chat/CallModal';
 import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { UserProfileModal } from './components/profile/UserProfileModal';
+import { ReportBugModal } from './components/ui/RankBadge';
 const ChatScreen = React.lazy(() => import('./screens/ChatScreen').then((m) => ({ default: m.ChatScreen })));
 const PostsScreen = React.lazy(() => import('./screens/PostsScreen').then((m) => ({ default: m.PostsScreen })));
 const CommunitiesScreen = React.lazy(() => import('./screens/CommunitiesScreen').then((m) => ({ default: m.CommunitiesScreen })));
@@ -26,6 +27,8 @@ export const App: React.FC = () => {
   const [chatBadgeCount, setChatBadgeCount] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
+  const [bugModalOpen, setBugModalOpen] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
   const [deepLinkProfile, setDeepLinkProfile] = useState<string | null>(() => {
@@ -47,7 +50,7 @@ export const App: React.FC = () => {
   useThemeSync(activeThemeKey);
 
   useEffect(() => {
-    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox CB2.1` : 'Chatterbox CB2.1 — Social Chat & Communities';
+    document.title = chatBadgeCount > 0 ? `(${chatBadgeCount}) Chatterbox CB2.2` : 'Chatterbox CB2.2 — Social Chat & Communities';
   }, [chatBadgeCount]);
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -69,6 +72,22 @@ export const App: React.FC = () => {
       disconnectSocket();
     } finally {
       setBooting(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (!reg) return;
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          nw?.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              setUpdateReady(true);
+            }
+          });
+        });
+      }).catch(() => {});
     }
   }, []);
 
@@ -186,6 +205,14 @@ export const App: React.FC = () => {
         />
       )}
 
+      {user && user.role !== 'DEVELOPER' && (
+        <ReportBugModal
+          open={bugModalOpen}
+          onClose={() => setBugModalOpen(false)}
+          onNotify={notify}
+        />
+      )}
+
       {user && (
         <CallModal
           call={activeCall}
@@ -211,7 +238,16 @@ export const App: React.FC = () => {
             isOnline={isOnline}
             isInstalledPwa={isInstalled}
             onOpenInstallModal={() => setInstallModalOpen(true)}
+            onOpenBugReport={user.role !== 'DEVELOPER' ? () => setBugModalOpen(true) : undefined}
           >
+            {updateReady && (
+              <div className="mb-3 px-4 py-2.5 rounded-2xl border border-cbox-success/40 bg-cbox-success/15 text-xs font-bold text-cbox-text flex items-center justify-between gap-2">
+                <span>🚀 New Chatterbox CB2.2 update ready!</span>
+                <button type="button" onClick={() => window.location.reload()} className="px-3 py-1 rounded-xl bg-cbox-success text-slate-950 text-[11px] font-bold">
+                  Refresh Now
+                </button>
+              </div>
+            )}
             {announcement && (
               <div className="mb-4 px-4 py-2.5 rounded-2xl border border-cbox-accent/40 bg-cbox-accent/15 text-xs font-semibold text-cbox-text flex items-center justify-between gap-2">
                 <span>📢 {announcement}</span>

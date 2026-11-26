@@ -33,6 +33,7 @@ mediaRouter.get('/:mediaId', async (req: AuthenticatedRequest, res) => {
       ? Buffer.from(asset.fileData)
       : await readStoredMedia(asset.storageKey);
     res.setHeader('Content-Type', asset.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=3600, stale-while-revalidate=86400');
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(bytes);

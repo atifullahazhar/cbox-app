@@ -1,5 +1,5 @@
 import React from 'react';
-import { WifiOff, Download } from 'lucide-react';
+import { WifiOff, Download, Bug } from 'lucide-react';
 import type { NavSection, SafeUser } from '../../types';
 import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
@@ -13,6 +13,7 @@ interface AppShellProps {
   isOnline: boolean;
   isInstalledPwa: boolean;
   onOpenInstallModal: () => void;
+  onOpenBugReport?: () => void;
   children: React.ReactNode;
 }
 
@@ -24,6 +25,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   isOnline,
   isInstalledPwa,
   onOpenInstallModal,
+  onOpenBugReport,
   children,
 }) => {
   return (
@@ -35,6 +37,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         pendingRequestCount={pendingRequestCount}
         canInstallPwa={!isInstalledPwa}
         onInstallPwa={onOpenInstallModal}
+        onOpenBugReport={onOpenBugReport}
       />
 
       <div className="md:pl-64 flex-1 flex flex-col min-w-0">
@@ -42,6 +45,17 @@ export const AppShell: React.FC<AppShellProps> = ({
         <header className="md:hidden sticky top-0 z-20 flex items-center justify-between gap-3 px-4 py-2.5 pt-safe bg-cbox-surface/95 backdrop-blur-md border-b border-cbox-border">
           <CboxLogo size={26} />
           <div className="flex items-center gap-2">
+            {user.role !== 'DEVELOPER' && onOpenBugReport && (
+              <button
+                type="button"
+                onClick={onOpenBugReport}
+                title="Report a Bug"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-400/35 text-xs font-semibold active:scale-95 transition"
+              >
+                <Bug className="h-3.5 w-3.5" />
+                <span>Bug</span>
+              </button>
+            )}
             {!isInstalledPwa && (
               <button
                 type="button"

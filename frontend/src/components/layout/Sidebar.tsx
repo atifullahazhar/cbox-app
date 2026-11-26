@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, MessageCircle, Images, Compass, Terminal, Download } from 'lucide-react';
+import { User, MessageCircle, Images, Compass, Terminal, Download, Bug } from 'lucide-react';
 import type { NavSection, SafeUser } from '../../types';
 import { CboxLogo } from '../ui/CboxLogo';
 import { Avatar } from '../ui/Avatar';
@@ -11,6 +11,7 @@ interface SidebarProps {
   pendingRequestCount: number;
   canInstallPwa: boolean;
   onInstallPwa: () => void;
+  onOpenBugReport?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,6 +21,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingRequestCount,
   canInstallPwa,
   onInstallPwa,
+  onOpenBugReport,
 }) => {
   const isDeveloper = user.role === 'DEVELOPER';
 
@@ -81,7 +83,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      <div className="p-4 border-t border-cbox-border space-y-3">
+      <div className="p-4 border-t border-cbox-border space-y-2.5">
+        {!isDeveloper && onOpenBugReport && (
+          <button
+            type="button"
+            onClick={onOpenBugReport}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border border-amber-400/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition"
+          >
+            <Bug className="h-4 w-4" />
+            Report a Bug
+          </button>
+        )}
         {canInstallPwa && (
           <button
             type="button"

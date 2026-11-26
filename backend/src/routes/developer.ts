@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { PostAudience, UserRole } from '@prisma/client';
+import { BugStatus, PostAudience, UserRole } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { type AuthenticatedRequest, requireAuth, requireDeveloper } from '../middleware/auth.js';
@@ -48,6 +48,34 @@ developerRouter.post('/feedback', (req: AuthenticatedRequest, res) => {
   }
   const entry = addFeedbackItem(req.auth!.user.usernameDisplay, parsed.data.category, parsed.data.message);
   res.status(201).json({ ok: true, entry });
+});
+
+
+// CB2.2 User Bug Report submission (normal users report bugs -> visible in Developer Control)
+developerRouter.post('/bugs', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({
+    title: z.string().trim().min(3).max(100),
+    section: z.string().trim().min(2).max(32).default('General'),
+    severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
+    description: z.string().trim().min(5).max(1000),
+    deviceInfo: z.string().trim().max(240).default(''),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Please enter a bug title (min 3 chars) and description (min 5 chars).' });
+    return;
+  }
+  const bug = await prisma.bugReport.create({
+    data: {
+      reporterId: req.auth!.user.id,
+      title: parsed.data.title,
+      section: parsed.data.section,
+      severity: parsed.data.severity,
+      description: parsed.data.description,
+      deviceInfo: parsed.data.deviceInfo,
+    },
+  });
+  res.status(201).json({ ok: true, bug });
 });
 
 // All routes below are strictly guarded by server-verified DEVELOPER role
@@ -378,4 +406,64 @@ developerRouter.post('/users/:id/toggle-role', async (req: AuthenticatedRequest,
   const nextRole = target.role === UserRole.DEVELOPER ? UserRole.USER : UserRole.DEVELOPER;
   await prisma.user.update({ where: { id: target.id }, data: { role: nextRole } });
   res.json({ ok: true, role: nextRole });
+});
+
+
+// CB2.2 Developer Bug Tracker (view, update status, delete)
+developerRouter.get('/bugs', async (_req: AuthenticatedRequest, res) => {
+  const bugs = await prisma.bugReport.findMany({
+    include: {
+      reporter: {
+        select: { id: true, usernameDisplay: true, primaryNickname: true, avatarMediaId: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+  const openCount = bugs.filter((b) => b.status === 'OPEN' || b.status === 'IN_PROGRESS').length;
+  res.json({
+    openCount,
+    bugs: bugs.map((b) => ({
+      id: b.id,
+      title: b.title,
+      section: b.section,
+      severity: b.severity,
+      description: b.description,
+      deviceInfo: b.deviceInfo,
+      status: b.status,
+      devNote: b.devNote,
+      createdAt: b.createdAt.toISOString(),
+      updatedAt: b.updatedAt.toISOString(),
+      reporter: {
+        id: b.reporter.id,
+        username: b.reporter.usernameDisplay,
+        primaryNickname: b.reporter.primaryNickname,
+      },
+    })),
+  });
+});
+
+developerRouter.patch('/bugs/:id', async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({
+    status: z.nativeEnum(BugStatus).optional(),
+    devNote: z.string().trim().max(400).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid bug update payload.' });
+    return;
+  }
+  const updated = await prisma.bugReport.update({
+    where: { id: req.params.id },
+    data: {
+      ...(parsed.data.status ? { status: parsed.data.status } : {}),
+      ...(parsed.data.devNote !== undefined ? { devNote: parsed.data.devNote } : {}),
+    },
+  });
+  res.json({ ok: true, bug: updated });
+});
+
+developerRouter.delete('/bugs/:id', async (req: AuthenticatedRequest, res) => {
+  await prisma.bugReport.deleteMany({ where: { id: req.params.id } });
+  res.json({ ok: true });
 });

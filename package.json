@@ -1,8 +1,8 @@
 {
   "name": "chatterbox-cb1",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
-  "description": "Chatterbox CB2.1 — 100 Themes, Social Chat, Official Events, Persistent Media & Developer Control",
+  "description": "Chatterbox CB2.2 — 100 Themes, Social Chat, Official Events, Persistent Media & Developer Control",
   "workspaces": [
     "backend",
     "frontend"

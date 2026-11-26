@@ -502,6 +502,90 @@ profileRouter.delete('/me/highlights/:id', async (req: AuthenticatedRequest, res
   res.json({ ok: true });
 });
 
+
+// CB2.2 Custom Sticker Maker CRUD
+profileRouter.get('/me/stickers', async (req: AuthenticatedRequest, res) => {
+  const stickers = await prisma.customSticker.findMany({
+    where: { userId: req.auth!.user.id },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+  res.json({
+    stickers: stickers.map((s) => ({
+      id: s.id,
+      label: s.label,
+      imageUrl: `/api/media/${s.mediaId}`,
+      createdAt: s.createdAt.toISOString(),
+    })),
+  });
+});
+
+profileRouter.post('/me/stickers', uploadLimiter, upload.single('image'), async (req: AuthenticatedRequest, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'Please provide a sticker image.' });
+    return;
+  }
+  const label = typeof req.body?.label === 'string' && req.body.label.trim()
+    ? req.body.label.trim().slice(0, 32)
+    : 'My Sticker';
+  try {
+    assertSafeText(label);
+    const count = await prisma.customSticker.count({ where: { userId: req.auth!.user.id } });
+    if (count >= 30) {
+      res.status(400).json({ error: 'You can save up to 30 custom stickers.' });
+      return;
+    }
+    const stored = await processAndStoreImage({
+      buffer: req.file.buffer,
+      declaredMimeType: req.file.mimetype,
+      originalFilename: req.file.originalname || 'sticker.png',
+      ownerId: req.auth!.user.id,
+      purpose: MediaPurpose.CUSTOM_STICKER,
+    });
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        ownerId: req.auth!.user.id,
+        purpose: MediaPurpose.CUSTOM_STICKER,
+        ...stored,
+      },
+    });
+    const created = await prisma.customSticker.create({
+      data: {
+        userId: req.auth!.user.id,
+        label,
+        mediaId: asset.id,
+      },
+    });
+    res.status(201).json({
+      sticker: {
+        id: created.id,
+        label: created.label,
+        imageUrl: `/api/media/${created.mediaId}`,
+        createdAt: created.createdAt.toISOString(),
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Sticker creation failed.' });
+  }
+});
+
+profileRouter.delete('/me/stickers/:id', async (req: AuthenticatedRequest, res) => {
+  const existing = await prisma.customSticker.findFirst({
+    where: { id: req.params.id, userId: req.auth!.user.id },
+  });
+  if (!existing) {
+    res.status(404).json({ error: 'Sticker not found.' });
+    return;
+  }
+  await prisma.customSticker.delete({ where: { id: existing.id } });
+  const asset = await prisma.mediaAsset.findUnique({ where: { id: existing.mediaId } });
+  if (asset) {
+    await prisma.mediaAsset.delete({ where: { id: asset.id } }).catch(() => {});
+    await deleteStoredMedia(asset.storageKey);
+  }
+  res.json({ ok: true });
+});
+
 // Mute / Restrict controls
 profileRouter.post('/:username/mute', async (req: AuthenticatedRequest, res) => {
   const target = await prisma.user.findUnique({ where: { usernameNormalized: req.params.username.trim().toLowerCase() } });
